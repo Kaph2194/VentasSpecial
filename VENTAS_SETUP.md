@@ -22,7 +22,7 @@ App para el equipo comercial, construida sobre el módulo de **Cartera** de Spec
 
 ## Prueba rápida (sin instalar nada)
 
-Abre la página con `?demo` al final (https://kaph2194.github.io/VentasSpecial/?demo) o sin backend configurado: la app entra en **modo demo** con datos de ejemplo guardados en tu navegador. Usuarios: `gerente@demo.com` (gerencia), `supervisor@demo.com` (supervisora de Carlos), `carlos.ruiz@gmail.com`, `andrea.mejia@gmail.com` (comerciales), `admin@demo.com`. Código: `123456`.
+Por ahora la página publicada **abre en modo demo** (https://kaph2194.github.io/VentasSpecial/); para entrar con el backend real se agrega `?real` (https://kaph2194.github.io/VentasSpecial/?real). Cuando el equipo empiece a usarla, cambiar `DEMO_POR_DEFECTO` a `false` en `app.js`: abrirá con el backend y `?demo` seguirá mostrando el demo. El modo demo usa datos de ejemplo guardados en tu navegador. Usuarios: `gerente@demo.com` (gerencia), `supervisor@demo.com` (supervisora de Carlos), `carlos.ruiz@gmail.com`, `andrea.mejia@gmail.com` (comerciales), `admin@demo.com`. Código: `123456`.
 
 ---
 
