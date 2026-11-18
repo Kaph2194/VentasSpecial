@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Special Car — Seguimiento comercial</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" type="image/png" href="img/icono.png" />
+  <meta name="theme-color" content="#2c4887" />
+</head>
+<body>
+
+<!-- ====== INGRESO CON CORREO PERSONAL ====== -->
+<div id="login" class="login hidden">
+  <div class="login-box">
+    <img src="img/logo-azul.png" alt="Special Car" class="login-logo" />
+    <h1>Seguimiento comercial</h1>
+    <p class="td-sub">Ingresa con tu correo electrónico personal</p>
+    <form id="lg-paso1" onsubmit="pedirCodigo(event)">
+      <div class="form-group"><label>Correo electrónico</label><input type="email" id="lg-correo" autocomplete="email" placeholder="tucorreo@gmail.com" required /></div>
+      <button id="lg-btn1" class="btn btn-primary-dark btn-block" type="submit">Enviarme un código de acceso</button>
+      <p class="td-sub lg-ayuda">Te llegará un código de 6 dígitos a ese correo. Si tu correo no está registrado, pídele al administrador que te agregue.</p>
+    </form>
+    <form id="lg-paso2" class="hidden" onsubmit="verificarCodigo(event)">
+      <p class="lg-envio">Enviamos un código a <b id="lg-para"></b></p>
+      <div class="form-group"><label>Código de 6 dígitos</label><input id="lg-codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="inp-codigo" placeholder="000000" required /></div>
+      <button id="lg-btn2" class="btn btn-primary-dark btn-block" type="submit">Entrar</button>
+      <p class="td-sub lg-ayuda"><button type="button" class="link-btn" onclick="mostrarLogin()">← Usar otro correo</button> · <button type="button" class="link-btn" onclick="pedirCodigo()">Reenviar código</button></p>
+    </form>
+    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b> (sin backend): entra con <code>gerente@demo.com</code> (administrador), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales). El código es <code>123456</code>.</div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header class="header">
+    <div class="header-content">
+      <div class="logo-area">
+        <img src="img/logo-blanco.png" alt="Special Car" class="logo-img" />
+        <span class="logo-sep"></span>
+        <div><h1>Ventas</h1><p>Seguimiento comercial de vehículos</p></div>
+      </div>
+      <nav class="main-nav">
+        <button class="nav-btn" id="nav-leads" onclick="irAVista('leads')">🧲 Leads</button>
+        <button class="nav-btn" id="nav-agenda" onclick="irAVista('agenda')">📅 Agenda <span class="tab-n hidden">0</span></button>
+        <button class="nav-btn" id="nav-cotizaciones" onclick="irAVista('cotizaciones')">📄 Cotizaciones</button>
+        <button class="nav-btn" id="nav-reportes" onclick="irAVista('reportes')">📊 Reportes</button>
+        <button class="nav-btn hidden" id="nav-usuarios" onclick="irAVista('usuarios')">👥 Usuarios</button>
+      </nav>
+      <div class="header-actions">
+        <button class="btn btn-primary" onclick="abrirFormLead()">+ Nuevo lead</button>
+        <div class="user-chip" id="user-chip"></div>
+        <button class="btn btn-outline btn-sm" onclick="cerrarSesion()" title="Cerrar sesión">Salir</button>
+      </div>
+    </div>
+  </header>
+  <div id="banner-demo" class="banner-demo hidden">🧪 <b>Modo demo:</b> los datos son de ejemplo y se guardan solo en este navegador. Para usarla con tu equipo, instala el backend (ver VENTAS_SETUP.md). <button class="link-btn" onclick="if(confirm('¿Borrar los datos del demo y volver a los de ejemplo?'))DemoBackend.reiniciar()">Reiniciar demo</button></div>
+
+  <!-- ====== LEADS ====== -->
+  <div id="vista-leads" class="vista">
+    <div class="dashboard-grid">
+      <div class="kpi-row kpi-row-5">
+        <div class="kpi-card kpi-total kpi-click" data-seg="" onclick="filtrarSeg('')"><div class="kpi-icon">🧲</div><div class="kpi-info"><div class="kpi-num" id="k-activos">0</div><div class="kpi-label">Leads activos · <span id="k-activos-sub"></span></div></div></div>
+        <div class="kpi-card kpi-cot kpi-click" data-seg="hoy" onclick="filtrarSeg('hoy')"><div class="kpi-icon">📅</div><div class="kpi-info"><div class="kpi-num" id="k-hoy">0</div><div class="kpi-label">Seguimientos para hoy</div></div></div>
+        <div class="kpi-card kpi-vencido kpi-click" data-seg="vencido" onclick="filtrarSeg('vencido')"><div class="kpi-icon">⏰</div><div class="kpi-info"><div class="kpi-num" id="k-venc">0</div><div class="kpi-label">Seguimientos vencidos</div></div></div>
+        <div class="kpi-card kpi-alerta kpi-click" data-seg="sin" onclick="filtrarSeg('sin')"><div class="kpi-icon">❔</div><div class="kpi-info"><div class="kpi-num" id="k-sin">0</div><div class="kpi-label">Activos sin fecha de seguimiento</div></div></div>
+        <div class="kpi-card kpi-vigente"><div class="kpi-icon">🏁</div><div class="kpi-info"><div class="kpi-num" id="k-ventas">0</div><div class="kpi-label">Ventas del mes</div></div></div>
+      </div>
+
+      <div class="dash-section">
+        <h3 class="dash-title">Embudo de ventas <span class="td-sub">— clic en un estado para filtrar</span></h3>
+        <div id="embudo-chips" class="embudo-chips"></div>
+      </div>
+
+      <div class="dash-section dash-section-flush">
+        <div class="filtros-bar filtros-bar-in">
+          <input type="text" id="lBuscar" placeholder="🔍 # lead, prospecto, teléfono, vehículo…" oninput="renderLeads()" class="input-search" />
+          <select id="lEstado" onchange="renderLeads()">
+            <option value="activos">Activos (en proceso)</option><option value="">Todos los estados</option><option value="finales">Finalizados (entregados y perdidos)</option>
+          </select>
+          <select id="lComercial" class="solo-admin" onchange="renderLeads()"><option value="">Todos los comerciales</option></select>
+          <select id="lMarca" onchange="renderLeads()"><option value="">Todas las marcas</option></select>
+          <select id="lOrigen" onchange="renderLeads()"><option value="">Todos los orígenes</option></select>
+          <select id="lSeg" onchange="renderLeads()">
+            <option value="">Seguimiento: todos</option><option value="vencido">Vencidos</option><option value="hoy">Para hoy</option><option value="semana">Próximos 7 días</option><option value="sin">Sin fecha</option><option value="singestion">Sin actividad en 3 días</option>
+          </select>
+          <label class="chk" title="Fecha de contacto desde / hasta">Contacto <input type="date" id="lDesde" onchange="renderLeads()"/> a <input type="date" id="lHasta" onchange="renderLeads()"/></label>
+          <button class="btn btn-sm btn-clear" onclick="limpiarFiltrosLeads()">✕ Limpiar</button>
+          <span class="ley-sep"></span>
+          <span id="l-count" class="count-label"></span>
+          <div class="seg-toggle"><button id="btn-modo-tabla" onclick="cambiarModoLeads('tabla')">☰ Tabla</button><button id="btn-modo-tablero" onclick="cambiarModoLeads('tablero')">▦ Tablero</button></div>
+        </div>
+        <div id="leads-tabla" class="tabla-scroll tabla-cartera-scroll">
+          <table id="tablaLeads">
+            <thead><tr>
+              <th class="th-fix" data-ord="id" onclick="ordenarLeads('id')"># Lead</th>
+              <th data-ord="prospecto" onclick="ordenarLeads('prospecto')">Prospecto</th>
+              <th>Teléfono</th>
+              <th data-ord="fechaContacto" onclick="ordenarLeads('fechaContacto')">F. contacto</th>
+              <th data-ord="fechaSeguimiento" onclick="ordenarLeads('fechaSeguimiento')">F. seguimiento</th>
+              <th data-ord="marca" onclick="ordenarLeads('marca')">Marca</th>
+              <th data-ord="referencia" onclick="ordenarLeads('referencia')">Referencia</th>
+              <th data-ord="estado" onclick="ordenarLeads('estado')">Estado</th>
+              <th id="th-comercial" data-ord="comercial" onclick="ordenarLeads('comercial')">Comercial</th>
+              <th>Cotiz.</th>
+              <th>Última gestión</th>
+              <th class="th-acc">Acciones</th>
+            </tr></thead>
+            <tbody id="tbodyLeads"></tbody>
+          </table>
+        </div>
+        <div id="leads-tablero" class="kanban hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== AGENDA ====== -->
+  <div id="vista-agenda" class="vista hidden">
+    <div class="dashboard-grid">
+      <div class="dash-section dash-section-flush">
+        <div class="filtros-bar filtros-bar-in">
+          <h3 class="dash-title" style="margin:0">Agenda de seguimientos</h3>
+          <span id="a-resumen" class="td-sub"></span>
+          <span class="ley-sep"></span>
+          <select id="aComercial" class="solo-admin" onchange="renderAgenda()"><option value="">Todos los comerciales</option></select>
+          <select id="aDias" onchange="renderAgenda()"><option value="0">Solo hoy y vencidos</option><option value="7" selected>Próximos 7 días</option><option value="30">Próximos 30 días</option><option value="3650">Todo</option></select>
+          <button class="btn btn-sm btn-outline-dark" onclick="enviarAgendaCorreo(this)" title="Te envía por correo los seguimientos vencidos y de hoy">✉️ Enviarme la agenda</button>
+        </div>
+        <p class="nota-agenda">Cada seguimiento también está en tu calendario (invitación a tu correo) con recordatorio, y cada mañana te llega por correo la agenda del día.</p>
+        <div id="lista-agenda" class="lista-agenda"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== COTIZACIONES ====== -->
+  <div id="vista-cotizaciones" class="vista hidden">
+    <div class="dashboard-grid">
+      <div class="dash-section dash-section-flush">
+        <div class="filtros-bar filtros-bar-in">
+          <input type="text" id="cBuscar" placeholder="🔍 N°, lead, cliente, vehículo…" oninput="renderCotizaciones()" class="input-search" />
+          <select id="cEstado" onchange="renderCotizaciones()"><option value="">Todos los estados</option><option value="emitida">Emitidas</option><option value="enviada">Enviadas</option><option value="aceptada">Aceptadas</option><option value="rechazada">Rechazadas</option><option value="vencida">Vencidas</option></select>
+          <select id="cComercial" class="solo-admin" onchange="renderCotizaciones()"><option value="">Todos los comerciales</option></select>
+          <label class="chk">Fecha <input type="date" id="cDesde" onchange="renderCotizaciones()"/> a <input type="date" id="cHasta" onchange="renderCotizaciones()"/></label>
+          <span class="ley-sep"></span>
+          <span id="c-count" class="count-label"></span>
+        </div>
+        <div class="tabla-scroll tabla-cartera-scroll">
+          <table id="tablaCot">
+            <thead><tr><th class="th-fix">N° cotización</th><th>Fecha</th><th>Válida hasta</th><th># Lead</th><th>Cliente</th><th>Vehículo</th><th style="text-align:right">Total</th><th>Forma de pago</th><th>Estado</th><th id="th-c-comercial">Comercial</th><th class="th-acc">Acciones</th></tr></thead>
+            <tbody id="tbodyCot"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== REPORTES ====== -->
+  <div id="vista-reportes" class="vista hidden">
+    <div class="dashboard-grid">
+      <div class="filtros-bar rep-filtros">
+        <h3 class="dash-title" style="margin:0">Reportes</h3><span id="r-titulo" class="td-sub"></span>
+        <span class="ley-sep"></span>
+        <select id="rPeriodo" onchange="renderReportes()"><option value="mes">Este mes</option><option value="mesant">Mes anterior</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="anio">Este año</option><option value="todo">Todo</option><option value="custom">Personalizado…</option></select>
+        <span id="rFechas" class="chk hidden"><input type="date" id="rDesde" onchange="renderReportes()"/> a <input type="date" id="rHasta" onchange="renderReportes()"/></span>
+        <select id="rComercial" class="solo-admin" onchange="renderReportes()"><option value="">Todos los comerciales</option></select>
+        <select id="rMarca" onchange="renderReportes()"><option value="">Todas las marcas</option></select>
+        <button class="btn btn-sm btn-outline-dark" onclick="exportarExcel()">📥 Excel</button>
+        <button class="btn btn-sm btn-outline-dark" onclick="imprimirReporte()">🖨 Imprimir / PDF</button>
+        <button class="btn btn-sm btn-dark" id="btn-informe-correo" onclick="enviarAgendaCorreo(this)">✉️ Enviarme el resumen</button>
+      </div>
+      <div class="rep-cuerpo">
+        <div id="r-kpis" class="kpi-row kpi-row-6"></div>
+        <div class="rep-grid">
+          <div class="dash-section"><h3 class="dash-title">Embudo — estado actual de los leads que entraron en el periodo</h3><div id="r-embudo"></div></div>
+          <div class="dash-section"><h3 class="dash-title">Leads nuevos y ventas por semana</h3><div id="r-tendencia"></div></div>
+        </div>
+        <div class="dash-section"><h3 class="dash-title">Resultados por comercial</h3><div id="r-comerciales" class="tabla-scroll"></div></div>
+        <div class="rep-grid">
+          <div class="dash-section"><h3 class="dash-title">Leads por marca</h3><div id="r-marcas"></div></div>
+          <div class="dash-section"><h3 class="dash-title">Referencias más solicitadas</h3><div id="r-referencias"></div></div>
+          <div class="dash-section"><h3 class="dash-title">Origen de los leads (y % que compró)</h3><div id="r-origenes"></div></div>
+          <div class="dash-section"><h3 class="dash-title">Motivos de pérdida</h3><div id="r-perdidas"></div></div>
+          <div class="dash-section"><h3 class="dash-title">Gestiones por resultado</h3><div id="r-gestiones"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== USUARIOS ====== -->
+  <div id="vista-usuarios" class="vista hidden">
+    <div class="dashboard-grid">
+      <div class="dash-section dash-section-flush">
+        <div class="filtros-bar filtros-bar-in">
+          <h3 class="dash-title" style="margin:0">Comerciales y administradores</h3>
+          <span class="td-sub">Cada persona entra con su correo personal; solo pueden ingresar los correos registrados aquí.</span>
+          <span class="ley-sep"></span>
+          <button class="btn btn-sm btn-primary-dark" onclick="abrirUsuario()">+ Agregar usuario</button>
+        </div>
+        <div class="tabla-scroll">
+          <table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Teléfono</th><th>Cargo</th><th>Estado</th><th>Leads activos</th><th class="th-acc"></th></tr></thead><tbody id="tbodyUsuarios"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="pie"><span id="sync-info"></span></footer>
+</div>
+
+<!-- MODAL -->
+<div id="modal" class="modal-overlay hidden">
+  <div class="modal-box modal-lg" id="modalBox">
+    <div class="modal-header"><h2 id="modalTitulo"></h2><button class="modal-close" onclick="cerrarModal()">✕</button></div>
+    <div class="modal-body" id="modalContenido"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+<datalist id="dl-marcas"></datalist><datalist id="dl-refs"></datalist>
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="app.js"></script>
+<script src="demo.js"></script>
+<script src="leads.js"></script>
+<script src="cotizaciones.js"></script>
+<script src="reportes.js"></script>
+</body>
+</html>
