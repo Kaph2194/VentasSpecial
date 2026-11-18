@@ -4,7 +4,7 @@
 // esté vacía. Para empezar de cero: DemoBackend.reiniciar().
 // =====================================================================
 const DemoBackend = (() => {
-  const CLAVE = 'vt_demo_v3';
+  const CLAVE = 'vt_demo_v4';
   let db = null;
   const ahora = () => new Date().toISOString();
   const rid = p => p + '-' + Math.random().toString(36).slice(2, 10);
@@ -32,7 +32,7 @@ const DemoBackend = (() => {
       ['Natalia Vargas', '3184445566', 'Volkswagen', 'T-Cross', 'Highline 2026', 'Vitrina / showroom', 'facturado', 4, '', 'andrea.mejia@gmail.com', -30, 129990000, 'Contado'],
       ['Jorge Iván Ramírez', '3006667788', 'Nissan', 'Kicks', 'Exclusive 2026', 'TuCarro / Marketplace', 'entregado', null, '', 'carlos.ruiz@gmail.com', -45, 112000000, 'Crédito'],
       ['Paola Andrea Gil', '3129990011', 'Hyundai', 'Tucson', 'Limited 2026', 'Facebook / Instagram', 'perdido', null, '', 'andrea.mejia@gmail.com', -28, 165000000, 'Crédito'],
-      ['Ricardo Salazar', '3193334455', 'Suzuki', 'Swift', 'Hybrid 2026', 'Feria / evento', 'cita', -1, '10:30', 'carlos.ruiz@gmail.com', -4, 78900000, 'Retoma + contado'],
+      ['Ricardo Salazar', '3193334455', 'Suzuki', 'Swift', 'Hybrid 2026', 'Feria / evento', 'cita', -1, '10:30', 'supervisor@demo.com', -4, 78900000, 'Retoma + contado'],
       ['Valentina Ospina', '3141112233', 'Kia', 'Picanto', 'Zenith 2026', 'TikTok', 'contactado', 5, '', 'andrea.mejia@gmail.com', -3, 66990000, 'Crédito'],
       ['Hernán Darío Pérez', '3027778811', 'Toyota', 'Hilux', 'SRV 4x4 2026', 'Cliente antiguo', 'entregado', null, '', 'andrea.mejia@gmail.com', -60, 219900000, 'Leasing'],
       ['Carolina Ríos', '3175553311', 'Chevrolet', 'Onix', 'Turbo RS 2026', 'Página web', 'perdido', null, '', 'carlos.ruiz@gmail.com', -15, 82990000, 'Crédito']

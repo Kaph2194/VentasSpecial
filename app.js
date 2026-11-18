@@ -18,7 +18,7 @@ const MODO_DEMO = !/^https:\/\/script\.google(usercontent)?\.com\//.test(VENTAS_
 let EMPRESA = { nombre: 'Special Car', nit: '', direccion: '', ciudad: 'Bogotá D.C.', telefono: '', correo: '', web: '' };
 let VALIDEZ_COTIZACION = 8;
 // Versión de apps-script/Ventas.gs que espera esta página
-const VERSION_BACKEND_ESPERADA = '2026-11-18.4';
+const VERSION_BACKEND_ESPERADA = '2026-11-18.5';
 let _avisoVersion = false;
 
 // ===== CATÁLOGOS =====
@@ -321,7 +321,7 @@ function abrirUsuario(correo) {
   const u = S.usuarios.find(x => x.correo === correo) || { correo: '', nombre: '', rol: 'comercial', activo: true, telefono: '', cargo: 'Asesor comercial', supervisor: '' };
   const sups = S.usuarios.filter(x => x.rol === 'supervisor' && x.activo && x.correo !== u.correo);
   const roles = Object.entries(ROLES).filter(([k]) => k !== 'admin' || rolActual() === 'admin');
-  const desc = { comercial: 've y gestiona solo sus leads', supervisor: 've los leads y estadísticas de su equipo', gerencia: 've todo, asigna supervisores y gestiona usuarios', admin: 've todo y gestiona usuarios y administradores' };
+  const desc = { comercial: 've y gestiona solo sus leads', supervisor: 'gestiona sus propios leads y ve los de su equipo con sus estadísticas', gerencia: 've todo, asigna supervisores y gestiona usuarios', admin: 've todo y gestiona usuarios y administradores' };
   abrirModal(correo ? 'Editar usuario' : 'Nuevo usuario', `
     <div class="form-grid">
       <div class="form-group"><label>Correo personal *</label><input id="us_correo" type="email" value="${esc(u.correo)}" ${correo ? 'disabled' : ''} placeholder="nombre@gmail.com"/></div>
@@ -353,7 +353,7 @@ function fechasEvento(l) {
   const t1 = `${f}T${String(h).padStart(2, '0')}${String(m).padStart(2, '0')}00`, t2 = `${f}T${String(fin.getHours()).padStart(2, '0')}${String(fin.getMinutes()).padStart(2, '0')}00`;
   return { gc: `${t1}/${t2}`, ini: `;TZID=America/Bogota:${t1}`, fin: `;TZID=America/Bogota:${t2}` };
 }
-function textoEvento(l) { return { t: `🚗 Seguimiento ${l.id} · ${l.prospecto}${l.marca ? ' · ' + l.marca + ' ' + (l.referencia || '') : ''}`, d: `Prospecto: ${l.prospecto}\nTeléfono: ${l.telefono}\nWhatsApp: ${linkWa(l.telefono)}\nVehículo: ${[l.marca, l.referencia, l.version].filter(Boolean).join(' ')}\nEstado: ${EST[l.estado].t}` }; }
+function textoEvento(l) { return { t: `☑ Tarea: seguimiento · ${l.prospecto} (${l.id})${l.marca ? ' · ' + l.marca + ' ' + (l.referencia || '') : ''}`, d: `Prospecto: ${l.prospecto}\nTeléfono: ${l.telefono}\nWhatsApp: ${linkWa(l.telefono)}\nVehículo: ${[l.marca, l.referencia, l.version].filter(Boolean).join(' ')}\nEstado: ${EST[l.estado].t}` }; }
 function urlGoogleCalendar(l) {
   if (!l.fechaSeguimiento) return '#'; const e = textoEvento(l);
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(e.t)}&dates=${fechasEvento(l).gc}&ctz=America/Bogota&details=${encodeURIComponent(e.d)}`;

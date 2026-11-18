@@ -26,7 +26,7 @@
  */
 
 // Versión del backend: la app avisa si la página espera una versión distinta
-const VERSION_BACKEND = '2026-11-18.4';
+const VERSION_BACKEND = '2026-11-18.5';
 
 const CONFIG = {
   EMPRESA: {
@@ -80,7 +80,7 @@ function rolDe_(t) { t = String(t || ''); return /admin/i.test(t) ? 'admin' : /g
 
 // ===================== WEB APP =====================
 function doGet() {
-  return json_({ ok: true, servicio: 'ventas-seguimiento-comercial', version: VERSION_BACKEND, disparador: asegurarDisparador_() });
+  return json_(Object.assign({ servicio: 'ventas-seguimiento-comercial' }, estadoServicio_()));
 }
 
 function doPost(e) {
@@ -89,7 +89,7 @@ function doPost(e) {
     asegurarDisparador_();
     // acciones públicas (sin sesión)
     switch (p.accion) {
-      case 'ping':            return json_({ ok: true, empresa: CONFIG.EMPRESA.nombre, version: VERSION_BACKEND, registro: CONFIG.PERMITIR_REGISTRO });
+      case 'ping':            return json_(estadoServicio_());
       case 'solicitarCodigo': return json_(solicitarCodigo_(p.correo, p.registro));
       case 'verificarCodigo': return json_(verificarCodigo_(p.correo, p.codigo));
     }
@@ -113,6 +113,15 @@ function doPost(e) {
     console.error(err);
     return json_({ error: String(err && err.message || err) });
   }
+}
+// Estado público (sin datos de clientes): versión, disparador del informe y último envío
+function estadoServicio_() {
+  const props = PropertiesService.getScriptProperties();
+  let ult = null, err = props.getProperty('ULTIMO_INFORME_ERROR');
+  try { ult = JSON.parse(props.getProperty('ULTIMO_INFORME') || 'null'); } catch (e) {}
+  const disp = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'informeDiarioAutomatico').length;
+  return { ok: true, empresa: CONFIG.EMPRESA.nombre, version: VERSION_BACKEND, registro: CONFIG.PERMITIR_REGISTRO,
+    informeAutomatico: { programado: disp > 0, hora: CONFIG.HORA_AGENDA + ':00', zona: CONFIG.ZONA, ultimoEnvio: ult ? ult.fecha : null, periodo: ult ? ult.desde + ' a ' + ult.hasta : null, gestiones: ult ? ult.gestiones : null, ultimoError: err || null } };
 }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
@@ -441,7 +450,12 @@ function sincronizarEventoLead_(l, previo) {
     delete l.eventId; delete l.eventoInvitado; return;
   }
   const ult = (l.seguimientos || []).slice(-1)[0];
-  const desc = 'Prospecto: ' + l.prospecto + '\nTeléfono: ' + l.telefono + '\nWhatsApp: https://wa.me/' + telWa_(l.telefono) +
+  // Qué hacer en la tarea, según el último resultado registrado
+  const ultR = (l.seguimientos || []).slice(-1)[0];
+  const accion = !ultR ? 'Primer contacto con el prospecto' : /no contest|errado/i.test(ultR.resultado) ? 'Volver a llamar (no contestó)' : /cotizaci/i.test(ultR.resultado) ? 'Hacer seguimiento a la cotización enviada'
+    : /prueba/i.test(ultR.resultado) ? 'Confirmar la prueba de manejo' : /cita|visita/i.test(ultR.resultado) ? 'Confirmar la cita / visita' : /cr[eé]dito/i.test(ultR.resultado) ? 'Revisar el estado del crédito' : 'Seguimiento comercial';
+  const desc = '☑ TAREA: ' + accion + '\nAl terminar, registra el resultado en la app (botón 📞 Gestión): así se agenda la siguiente tarea.\n\n' +
+    'Prospecto: ' + l.prospecto + '\nTeléfono: ' + l.telefono + '\nWhatsApp: https://wa.me/' + telWa_(l.telefono) +
     (l.correo ? '\nCorreo: ' + l.correo : '') + '\nVehículo: ' + [l.marca, l.referencia, l.version].filter(String).join(' ') +
     '\nEstado: ' + (ESTADO_TXT_[l.estado] || l.estado) + '\nOrigen: ' + (l.origen || '') + '\nComercial: ' + (l.nombreComercial || l.comercial) +
     (ult ? '\n\nÚltima gestión (' + String(ult.fecha).slice(0, 10) + ', ' + (ult.medio || '') + '): ' + (ult.resultado || '') + (ult.nota ? ' — ' + ult.nota : '') : '') +
@@ -451,7 +465,7 @@ function sincronizarEventoLead_(l, previo) {
   const f = d => Utilities.formatDate(d, CONFIG.ZONA, "yyyy-MM-dd'T'HH:mm:ss");
   const dueno = normCorreo_(Session.getEffectiveUser().getEmail());
   const recurso = {
-    summary: '🚗 Seguimiento ' + l.id + ' · ' + l.prospecto + (l.marca ? ' · ' + l.marca + ' ' + (l.referencia || '') : ''),
+    summary: '☑ Tarea: ' + accion + ' · ' + l.prospecto + ' (' + l.id + ')' + (l.marca ? ' · ' + l.marca + ' ' + (l.referencia || '') : ''),
     description: desc,
     start: conHora ? { dateTime: f(inicio), timeZone: CONFIG.ZONA } : { date: l.fechaSeguimiento },
     end: conHora ? { dateTime: f(new Date(inicio.getTime() + CONFIG.DURACION_EVENTO_MIN * 60000)), timeZone: CONFIG.ZONA } : { date: diaSiguiente_(l.fechaSeguimiento) },
@@ -857,7 +871,12 @@ function informeDiarioAutomatico() {
   if (Number(Utilities.formatDate(new Date(), CONFIG.ZONA, 'u')) === 7) return;   // domingo no (el lunes llega sábado + domingo)
   const leads = leerLeads_().map(limpio_), usuarios = leerUsuarios_(), activos = usuarios.filter(x => x.activo), hoy = hoyISO_();
   const cots = leerCotizaciones_().map(limpio_), per = periodoInforme_();
-  if (CONFIG.CORREO_INFORME && leads.length) { try { enviarInformeDia_(CONFIG.CORREO_INFORME, CONFIG.CC_INFORME, leads, cots, usuarios, per); } catch (e) { console.error('Informe CEO', e); } }
+  // se envía siempre (aunque no haya habido gestiones), sin intervención de ningún usuario
+  if (CONFIG.CORREO_INFORME) {
+    try { const n = enviarInformeDia_(CONFIG.CORREO_INFORME, CONFIG.CC_INFORME, leads, cots, usuarios, per);
+      PropertiesService.getScriptProperties().setProperty('ULTIMO_INFORME', JSON.stringify({ fecha: new Date().toISOString(), para: CONFIG.CORREO_INFORME, desde: per.desde, hasta: per.hasta, gestiones: n })); }
+    catch (e) { console.error('Informe CEO', e); PropertiesService.getScriptProperties().setProperty('ULTIMO_INFORME_ERROR', new Date().toISOString() + ' ' + (e.message || e)); }
+  }
   if (CONFIG.INFORME_A_SUPERVISORES) activos.filter(u => u.rol === 'supervisor').forEach(u => {
     try { const alc = alcance_(u, usuarios); const mis = leads.filter(l => alc[l.comercial]); if (!mis.length) return; const ids = {}; mis.forEach(l => ids[l.id] = true);
       enviarInformeDia_(u.correo, [], mis, cots.filter(c => ids[c.leadId]), usuarios, per, 'Informe de gestiones — equipo de ' + u.nombre); }
