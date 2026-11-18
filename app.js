@@ -15,10 +15,14 @@ const DEMO_POR_DEFECTO = true;
 const MODO_DEMO = !/^https:\/\/script\.google(usercontent)?\.com\//.test(VENTAS_WEBAPP_URL) || /[?&]demo\b/.test(location.search) || (DEMO_POR_DEFECTO && !/[?&]real\b/.test(location.search));
 
 // Datos de la empresa para el encabezado de las cotizaciones (el backend los reemplaza con su CONFIG.EMPRESA)
+// ID de cliente OAuth de Google para "Continuar con Google" (el mismo de CONFIG.GOOGLE_CLIENT_ID en Ventas.gs).
+// Vacío = solo ingreso con código al correo. Ver VENTAS_SETUP.md, sección "Ingreso con Google".
+const GOOGLE_CLIENT_ID = '';
+
 let EMPRESA = { nombre: 'Special Car', nit: '', direccion: '', ciudad: 'Bogotá D.C.', telefono: '', correo: '', web: '' };
 let VALIDEZ_COTIZACION = 8;
 // Versión de apps-script/Ventas.gs que espera esta página
-const VERSION_BACKEND_ESPERADA = '2026-11-18.5';
+const VERSION_BACKEND_ESPERADA = '2026-11-18.6';
 let _avisoVersion = false;
 
 // ===== CATÁLOGOS =====
@@ -138,34 +142,129 @@ async function api(accion, datos) {
   return d;
 }
 
-// ===== ACCESO CON CORREO PERSONAL (código de 6 dígitos) =====
-let _registro = false;
+// ===== PERFIL DEL USUARIO (registro y "Mi perfil") =====
+// Obligatorio: nombre, celular, cédula y ciudad (el correo ya viene del ingreso). Opcional: foto, dirección y contacto de emergencia.
+const _fotos = {};
+const perfilIncompleto = u => !u || !u.telefono || !u.documento || !u.ciudad;
+function iniciales(nombre) { return String(nombre || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0] || '').join('').toUpperCase(); }
+function avatarHTML(u, tam) {
+  tam = tam || 30;
+  return u && u.foto ? `<img class="avatar" src="${esc(u.foto)}" alt="" referrerpolicy="no-referrer" style="width:${tam}px;height:${tam}px">`
+    : `<span class="avatar avatar-ini" style="width:${tam}px;height:${tam}px;font-size:${Math.round(tam * 0.4)}px">${esc(iniciales(u && u.nombre))}</span>`;
+}
+function camposPerfil(px, d) {
+  d = d || {}; _fotos[px] = d.foto || '';
+  const f = (id, label, val, extra) => `<div class="form-group"><label>${label}</label><input id="${px}_${id}" value="${esc(val || '')}" ${extra || ''}/></div>`;
+  return `<div class="pf-foto"><span id="${px}_avatar">${avatarHTML({ nombre: d.nombre, foto: d.foto }, 64)}</span>
+      <div><label class="btn btn-sm btn-outline-dark pf-foto-btn">📷 ${d.foto ? 'Cambiar foto' : 'Agregar foto'} (opcional)<input type="file" accept="image/*" onchange="elegirFoto('${px}',this)" hidden/></label>
+      <button type="button" class="link-btn ${d.foto ? '' : 'hidden'}" id="${px}_quitar" onclick="quitarFoto('${px}')">Quitar</button></div></div>
+    <div class="pf-grid">
+      ${f('nombre', 'Nombre y apellido *', d.nombre, 'autocomplete="name" placeholder="Como aparecerá en las cotizaciones"')}
+      ${f('telefono', 'Celular *', d.telefono, 'type="tel" autocomplete="tel" placeholder="300 123 4567"')}
+      ${f('documento', 'Cédula *', d.documento, 'inputmode="numeric" placeholder="Número de documento"')}
+      ${f('ciudad', 'Ciudad *', d.ciudad, 'autocomplete="address-level2"')}
+      <div class="pf-ancho">${f('direccion', 'Dirección', d.direccion, 'autocomplete="street-address"')}</div>
+      ${f('contactoEmergencia', 'Contacto de emergencia', d.contactoEmergencia, 'placeholder="Nombre y parentesco"')}
+      ${f('telEmergencia', 'Teléfono de emergencia', d.telEmergencia, 'type="tel"')}
+    </div>`;
+}
+function leerPerfil(px) {
+  const v = id => (($(px + '_' + id) || {}).value || '').trim();
+  return { nombre: v('nombre').replace(/\s+/g, ' '), telefono: v('telefono'), documento: v('documento'), ciudad: v('ciudad'), direccion: v('direccion'),
+    contactoEmergencia: v('contactoEmergencia'), telEmergencia: v('telEmergencia'), foto: _fotos[px] || '' };
+}
+function validarPerfil(d) {
+  if (d.nombre.split(' ').length < 2 || d.nombre.length < 5) return 'Escribe tu nombre y apellido';
+  if (d.telefono.replace(/\D/g, '').length < 7) return 'Escribe tu número de celular';
+  if (d.documento.replace(/\W/g, '').length < 5) return 'Escribe tu número de cédula';
+  if (d.ciudad.length < 3) return 'Escribe tu ciudad';
+  return null;
+}
+// Recorta la foto en cuadrado y la reduce a 192 px (queda de ~15 KB)
+async function elegirFoto(px, input) {
+  const f = input.files[0]; if (!f) return;
+  if (!/^image\//.test(f.type)) { mostrarToast('Elige una imagen', 'error'); return; }
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
+    const lado = Math.min(img.naturalWidth, img.naturalHeight), cv = document.createElement('canvas'); cv.width = cv.height = 192;
+    cv.getContext('2d').drawImage(img, (img.naturalWidth - lado) / 2, (img.naturalHeight - lado) / 2, lado, lado, 0, 0, 192, 192);
+    let q = 0.85, url = cv.toDataURL('image/jpeg', q); while (url.length > 40000 && q > 0.4) { q -= 0.1; url = cv.toDataURL('image/jpeg', q); }
+    _fotos[px] = url; $(px + '_avatar').innerHTML = avatarHTML({ foto: url }, 64); $(px + '_quitar').classList.remove('hidden');
+  } catch (e) { mostrarToast('No se pudo leer la imagen', 'error'); }
+}
+function quitarFoto(px) { _fotos[px] = ''; $(px + '_avatar').innerHTML = avatarHTML({ nombre: ($(px + '_nombre') || {}).value }, 64); $(px + '_quitar').classList.add('hidden'); }
+
+// ===== INGRESO: con Google o con código de 6 dígitos al correo =====
+let _registro = false, _gRegistro = null;
 function modoRegistro(on) {
   _registro = !!on;
+  if (_registro && !$('rg_nombre')) $('lg-reg-campos').innerHTML = camposPerfil('rg', {});
   document.querySelectorAll('.lg-reg').forEach(x => x.classList.toggle('hidden', !_registro));
   $('lg-ayuda1').classList.toggle('hidden', _registro);
   $('lg-tab-entrar').classList.toggle('activo', !_registro); $('lg-tab-registro').classList.toggle('activo', _registro);
   $('lg-btn1').textContent = _registro ? 'Registrarme: enviarme el código' : 'Enviarme un código de acceso';
-  setTimeout(() => $(_registro ? 'lg-nombre' : 'lg-correo').focus(), 50);
+  $('lg-sub').textContent = _registro ? 'Regístrate con tu cuenta de Google o con tu correo' : 'Ingresa con tu cuenta de Google o con tu correo';
+  iniciarGoogle();
 }
 function mostrarLogin() {
   $('login').classList.remove('hidden'); $('app').classList.add('hidden');
-  if (/[?&]registro\b/.test(location.search)) setTimeout(() => modoRegistro(true), 0);
-  $('lg-paso1').classList.remove('hidden'); $('lg-paso2').classList.add('hidden');
+  ['lg-paso2', 'lg-paso3'].forEach(id => $(id).classList.add('hidden')); $('lg-paso1').classList.remove('hidden');
   $('lg-demo').classList.toggle('hidden', !MODO_DEMO);
   try { $('lg-correo').value = localStorage.getItem('vt_ultimo_correo') || ''; } catch (e) {}
-  setTimeout(() => $('lg-correo').focus(), 50);
+  if (/[?&]registro\b/.test(location.search)) modoRegistro(true); else iniciarGoogle();
+}
+// Botón "Continuar con Google" (Google Identity Services). En el demo se simula.
+function iniciarGoogle() {
+  const box = $('lg-google-box'); if (!box) return;
+  if (MODO_DEMO) {
+    box.classList.remove('hidden');
+    $('lg-google').innerHTML = `<button type="button" class="btn-google" onclick="googleDemo()"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Continuar con Google</button>`;
+    return;
+  }
+  const id = (typeof GOOGLE_CLIENT_ID !== 'undefined' && GOOGLE_CLIENT_ID) || '';
+  if (!id || !window._gsiListo || !window.google || !google.accounts) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  if (!iniciarGoogle._ok) { google.accounts.id.initialize({ client_id: id, callback: respuestaGoogle, ux_mode: 'popup', auto_select: false }); iniciarGoogle._ok = true; }
+  $('lg-google').innerHTML = '';
+  google.accounts.id.renderButton($('lg-google'), { theme: 'outline', size: 'large', text: _registro ? 'signup_with' : 'continue_with', shape: 'rectangular', locale: 'es', width: 320 });
+}
+function googleDemo() {
+  const c = $('lg-correo').value.trim().toLowerCase() || 'nuevo.comercial@gmail.com';
+  const nombre = c.split('@')[0].split(/[._]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+  respuestaGoogle({ credential: 'demo.' + btoa(unescape(encodeURIComponent(JSON.stringify({ email: c, name: nombre, picture: '' })))) + '.firma' });
+}
+async function respuestaGoogle(resp) {
+  try {
+    const r = await api('ingresarGoogle', { credential: resp.credential });
+    if (r.token) return iniciarSesion(r);
+    // cuenta nueva: completar datos de contacto
+    _gRegistro = r;
+    $('lg-paso1').classList.add('hidden'); $('lg-paso3').classList.remove('hidden');
+    $('lg-g-avatar').innerHTML = avatarHTML({ nombre: r.nombre, foto: r.foto }, 44);
+    $('lg-g-nombre').textContent = r.nombre || 'Cuenta de Google'; $('lg-g-correo').textContent = r.correo;
+    $('lg-g-campos').innerHTML = camposPerfil('gr', { nombre: r.nombre, foto: r.foto });
+    setTimeout(() => $('gr_telefono').focus(), 50);
+  } catch (e) { mostrarToast(e.message, 'error'); }
+}
+async function terminarRegistroGoogle(ev) {
+  if (ev) ev.preventDefault();
+  const datos = leerPerfil('gr'), err = validarPerfil(datos); if (err) { mostrarToast(err, 'error'); return; }
+  await conEspera($('lg-btn3'), async () => {
+    try { iniciarSesion(await api('completarRegistro', { registroToken: _gRegistro.registroToken, datos })); mostrarToast('¡Registro completo! Bienvenido(a)', 'success'); }
+    catch (e) { mostrarToast(e.message, 'error'); }
+  });
+}
+function iniciarSesion(r) {
+  S.token = r.token; S.usuario = r.usuario;
+  try { localStorage.setItem('vt_token', r.token); localStorage.setItem('vt_usuario', JSON.stringify(r.usuario)); localStorage.setItem('vt_ultimo_correo', r.usuario.correo); } catch (e) {}
+  entrarApp();
 }
 async function pedirCodigo(ev) {
   if (ev) ev.preventDefault();
   const correo = $('lg-correo').value.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) { mostrarToast('Escribe tu correo electrónico', 'error'); return; }
   let registro = null;
-  if (_registro) {
-    registro = { nombre: $('lg-nombre').value.trim(), telefono: $('lg-tel').value.trim() };
-    if (registro.nombre.split(/\s+/).length < 2) { mostrarToast('Escribe tu nombre y apellido', 'error'); return; }
-    if (registro.telefono.replace(/\D/g, '').length < 7) { mostrarToast('Escribe tu número de celular', 'error'); return; }
-  }
+  if (_registro) { registro = leerPerfil('rg'); const err = validarPerfil(registro); if (err) { mostrarToast(err, 'error'); return; } }
   await conEspera($('lg-btn1'), async () => {
     try {
       const r = await api('solicitarCodigo', { correo, registro });
@@ -184,28 +283,49 @@ async function verificarCodigo(ev) {
   const correo = $('lg-para').textContent, codigo = $('lg-codigo').value.trim();
   if (!/^\d{6}$/.test(codigo)) { mostrarToast('El código tiene 6 dígitos', 'error'); return; }
   await conEspera($('lg-btn2'), async () => {
-    try {
-      const r = await api('verificarCodigo', { correo, codigo });
-      S.token = r.token; S.usuario = r.usuario;
-      try { localStorage.setItem('vt_token', r.token); localStorage.setItem('vt_usuario', JSON.stringify(r.usuario)); } catch (e) {}
-      entrarApp();
-    } catch (e) { mostrarToast(e.message, 'error'); }
+    try { iniciarSesion(await api('verificarCodigo', { correo, codigo })); }
+    catch (e) { mostrarToast(e.message, 'error'); }
   });
 }
 function cerrarSesion(silencioso) {
   if (!silencioso && S.token) api('cerrarSesion').catch(() => {});
   S.token = null; S.usuario = null; S.leads = []; S.cotizaciones = []; S.version = null;
   try { localStorage.removeItem('vt_token'); localStorage.removeItem('vt_usuario'); } catch (e) {}
+  try { if (window.google && google.accounts) google.accounts.id.disableAutoSelect(); } catch (e) {}
   mostrarLogin();
+}
+function pintarChip() {
+  $('user-chip').innerHTML = `${avatarHTML(S.usuario, 32)}<span class="chip-txt"><b>${esc(S.usuario.nombre)}</b><small>${esc(S.usuario.correo)} · ${ROLES[rolActual()]}${esSupervisor() ? ' · equipo de ' + S.usuarios.filter(u => u.supervisor === S.usuario.correo).length : ''}</small></span>`;
 }
 function entrarApp() {
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  $('user-chip').innerHTML = `<b>${esc(S.usuario.nombre)}</b><small>${esc(S.usuario.correo)} · ${ROLES[rolActual()]}${esSupervisor() ? ' · equipo de ' + S.usuarios.filter(u => u.supervisor === S.usuario.correo).length : ''}</small>`;
+  pintarChip();
   $('nav-usuarios').classList.toggle('hidden', !gestionaUsuarios());
   $('banner-demo').classList.toggle('hidden', !MODO_DEMO);
   document.body.classList.toggle('es-admin', veEquipo());
   irAVista(S.vista || 'leads');
-  sincronizar(true).then(abrirDesdeHash);
+  sincronizar(true).then(() => { abrirDesdeHash(); if (perfilIncompleto(S.usuario)) abrirMiPerfil(true); });
+}
+// "Mi perfil": datos de contacto y foto de cada usuario
+function abrirMiPerfil(obligatorio) {
+  const u = S.usuario; if (!u) return;
+  abrirModal(obligatorio ? '👤 Completa tu perfil' : '👤 Mi perfil', `
+    ${obligatorio ? '<div class="aviso-nuevos" style="margin:0 0 14px">Para continuar completa tus datos de contacto. La foto es opcional.</div>' : ''}
+    <div class="form-group" style="margin-bottom:12px"><label>Correo</label><input value="${esc(u.correo)}" disabled/></div>
+    ${camposPerfil('pf', u)}
+    <p class="nota-cal">Perfil: <b>${ROLES[rolActual()]}</b>${u.supervisor ? ' · Supervisor: ' + esc(nombreUsuario(u.supervisor)) : ''}. El perfil y el equipo los asigna gerencia o el administrador.</p>`,
+    `<button class="btn btn-primary-dark" onclick="guardarMiPerfil(this)">💾 Guardar</button>`, 'modal-md');
+}
+async function guardarMiPerfil(btn) {
+  const datos = leerPerfil('pf'), err = validarPerfil(datos); if (err) { mostrarToast(err, 'error'); return; }
+  await conEspera(btn, async () => {
+    try {
+      const r = await api('guardarPerfil', { datos });
+      S.usuario = Object.assign({}, S.usuario, r.usuario); const i = S.usuarios.findIndex(x => x.correo === r.usuario.correo); if (i >= 0) S.usuarios[i] = Object.assign({}, S.usuarios[i], r.usuario);
+      try { localStorage.setItem('vt_usuario', JSON.stringify(S.usuario)); } catch (e) {}
+      pintarChip(); cerrarModal(); mostrarToast('Perfil guardado', 'success');
+    } catch (e) { mostrarToast(e.message, 'error'); }
+  });
 }
 
 // ===== SINCRONIZACIÓN (cada minuto y al volver a la pestaña) =====
@@ -218,7 +338,7 @@ function sincronizar(forzar) {
       const r = await api('obtenerDatos', { version: forzar ? null : S.version });
       S.ultimaSync = new Date();
       if (!r.sinCambios) {
-        S.version = r.version; S.usuario = r.usuario || S.usuario; S.usuarios = r.usuarios || [];
+        S.version = r.version; S.usuario = r.usuario || S.usuario; try { localStorage.setItem('vt_usuario', JSON.stringify(S.usuario)); } catch (e) {} if ($('user-chip')) pintarChip(); S.usuarios = r.usuarios || [];
         S.leads = r.leads || []; S.cotizaciones = r.cotizaciones || [];
         if (r.empresa) EMPRESA = Object.assign({}, EMPRESA, r.empresa);
         if (r.validezCotizacion) VALIDEZ_COTIZACION = r.validezCotizacion;
@@ -311,7 +431,7 @@ function renderUsuarios() {
   $('us-nuevos').classList.toggle('hidden', !nuevos.length);
   $('tbodyUsuarios').innerHTML = S.usuarios.slice().sort((a, b) => (b.activo - a.activo) || (orden[a.rol] - orden[b.rol]) || a.nombre.localeCompare(b.nombre)).map(u => {
     const mios = S.leads.filter(l => l.comercial === u.correo), equipo = S.usuarios.filter(x => x.supervisor === u.correo);
-    return `<tr class="${u.activo ? '' : 'fila-inactiva'} ${esRegistroNuevo(u) ? 'fila-nuevo' : ''}"><td><b>${esc(u.nombre)}</b>${esRegistroNuevo(u) ? ' <span class="st st-cotizado">Nuevo</span>' : ''}${u.creado ? `<div class="td-sub">Desde ${fmtD(String(u.creado).slice(0, 10))}</div>` : ''}</td><td>${esc(u.correo)}</td><td><span class="st ${ROL_CLS[u.rol]}">${ROLES[u.rol]}</span></td>
+    return `<tr class="${u.activo ? '' : 'fila-inactiva'} ${esRegistroNuevo(u) ? 'fila-nuevo' : ''}"><td><div class="us-nombre">${avatarHTML(u, 34)}<div><b>${esc(u.nombre)}</b>${esRegistroNuevo(u) ? ' <span class="st st-cotizado">Nuevo</span>' : ''}<div class="td-sub">${[u.ciudad, u.documento ? 'CC ' + u.documento : '', u.creado ? 'desde ' + fmtD(String(u.creado).slice(0, 10)) : '', u.origen === 'Google' ? 'con Google' : ''].filter(Boolean).map(esc).join(' · ')}${perfilIncompleto(u) ? ' · <span class="txt-r">perfil incompleto</span>' : ''}</div></div></div></td><td>${esc(u.correo)}</td><td><span class="st ${ROL_CLS[u.rol]}">${ROLES[u.rol]}</span></td>
       <td>${u.rol === 'supervisor' ? `<span class="td-sub2">Equipo: ${equipo.length ? equipo.map(x => esc(x.nombre)).join(', ') : '<i>sin asignar</i>'}</span>` : u.rol === 'comercial' ? (u.supervisor ? esc(nombreUsuario(u.supervisor)) : '<span class="cell-n">Sin supervisor</span>') : '<span class="cell-n">Ve todo</span>'}</td>
       <td>${esc(u.telefono || '—')}</td><td>${esc(u.cargo || '—')}</td><td>${u.activo ? '<span class="txt-g">Activo</span>' : '<span class="txt-r">Inactivo</span>'}</td>
       <td style="text-align:center">${mios.filter(esActivo).length}</td><td class="td-acc">${u.rol === 'admin' && rolActual() !== 'admin' ? '' : `<button class="btn-notif" onclick="abrirUsuario('${esc(u.correo)}')">✏️ Editar</button>`}</td></tr>`;
@@ -332,7 +452,10 @@ function abrirUsuario(correo) {
       <div class="form-group"><label>Cargo</label><input id="us_cargo" value="${esc(u.cargo)}"/></div>
       <div class="form-group"><label>Estado</label><select id="us_activo"><option value="1">Activo</option><option value="0" ${u.activo ? '' : 'selected'}>Inactivo (no puede ingresar)</option></select></div>
     </div>
-    <p class="nota-cal">Cada persona entra con este correo: recibe un código de 6 dígitos en ese buzón. Los comerciales se asignan a un <b>supervisor</b>, que verá los leads, la agenda y las estadísticas de su equipo.${sups.length ? '' : ' Aún no hay usuarios con perfil Supervisor: créalos primero para poder asignarles comerciales.'}</p>`,
+    ${correo ? `<div class="us-datos">${avatarHTML(u, 48)}<div><b>Datos de contacto</b><div>${[u.ciudad, u.direccion].filter(Boolean).map(esc).join(' · ') || '<span class="cell-n">Sin ciudad / dirección</span>'}</div>
+      <div>${u.documento ? 'Cédula ' + esc(u.documento) : '<span class="txt-r">Sin cédula</span>'}${u.contactoEmergencia || u.telEmergencia ? ' · Emergencia: ' + esc([u.contactoEmergencia, u.telEmergencia].filter(Boolean).join(' ')) : ''}</div>
+      <div class="td-sub">Registro: ${esc(u.origen || 'manual')}${u.creado ? ' · ' + fmtD(String(u.creado).slice(0, 10)) : ''}. Cada persona actualiza estos datos en "Mi perfil".</div></div></div>` : ''}
+    <p class="nota-cal">Cada persona entra con este correo (con su cuenta de Google o con un código de 6 dígitos que le llega a ese buzón). Los comerciales se asignan a un <b>supervisor</b>, que verá los leads, la agenda y las estadísticas de su equipo.${sups.length ? '' : ' Aún no hay usuarios con perfil Supervisor: créalos primero para poder asignarles comerciales.'}</p>`,
     `<button class="btn btn-primary-dark" onclick="guardarUsuario(this)">💾 Guardar</button>`, 'modal-md');
 }
 async function guardarUsuario(btn) {

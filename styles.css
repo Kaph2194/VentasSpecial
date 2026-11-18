@@ -499,3 +499,31 @@ tbody tr.fila-nuevo td{background:#fffdf5}
 .kb-perdidos{margin-left:auto}
 @media(max-width:1100px){.kb-cols{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){.kb-cols{grid-template-columns:repeat(2,minmax(0,1fr))}.kb-col{max-height:none}}
+
+/* ===== Perfil, foto e ingreso con Google ===== */
+.avatar{border-radius:50%;object-fit:cover;flex:none;display:inline-flex;align-items:center;justify-content:center;background:var(--brand-light);border:2px solid #fff;box-shadow:0 0 0 1px var(--blue-b)}
+.avatar-ini{background:var(--brand);color:#fff;font-weight:800;letter-spacing:.5px}
+button.user-chip{display:flex;flex-direction:row;align-items:center;gap:8px;background:transparent;border:1px solid rgba(255,255,255,.25);border-radius:22px;padding:3px 10px 3px 3px;color:#fff;cursor:pointer;font-family:inherit;text-align:left;max-width:260px}
+button.user-chip:hover{background:rgba(255,255,255,.12)}
+.chip-txt{display:flex;flex-direction:column;line-height:1.2;font-size:11.5px;min-width:0}.chip-txt small{font-size:10px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.login-box{max-height:94vh;overflow-y:auto}
+.lg-google-box{display:flex;flex-direction:column;align-items:center;gap:12px}
+#lg-google{display:flex;justify-content:center;min-height:44px;width:100%}
+.btn-google{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:320px;height:42px;border:1px solid #dadce0;border-radius:6px;background:#fff;font-family:inherit;font-size:14px;font-weight:600;color:#3c4043;cursor:pointer}
+.btn-google:hover{background:#f8faff;border-color:#c6d2f0}
+.lg-sep{display:flex;align-items:center;gap:10px;width:100%;color:var(--g400);font-size:11px}.lg-sep::before,.lg-sep::after{content:"";flex:1;height:1px;background:var(--g200)}
+.lg-gcuenta{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--g200);border-radius:10px;background:var(--g50)}
+.lg-gcuenta small{display:block;color:var(--g500);font-size:11px}
+.pf-foto{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.pf-foto-btn{cursor:pointer}
+.pf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.pf-ancho{grid-column:1/-1}
+.login-box .pf-grid{grid-template-columns:1fr 1fr}
+.us-nombre{display:flex;align-items:center;gap:10px}
+.us-datos{display:flex;gap:12px;align-items:flex-start;margin-top:14px;padding:10px 12px;background:var(--g50);border:1px solid var(--g200);border-radius:8px;font-size:12px;line-height:1.5}
+@media(max-width:560px){.pf-grid,.login-box .pf-grid{grid-template-columns:1fr}.chip-txt{display:none}button.user-chip{padding:3px}}
+@media(max-width:900px){button.user-chip{display:flex;padding:3px}.chip-txt{display:none}}
+/* campos de perfil dentro de la tarjeta de ingreso: sin desbordarse */
+.login-box{width:450px;overflow-x:hidden}
+.pf-grid>*,.pf-grid .form-group{min-width:0}
+.pf-grid input,.login-box input{width:100%;box-sizing:border-box;max-width:100%}

@@ -26,7 +26,7 @@
  */
 
 // Versión del backend: la app avisa si la página espera una versión distinta
-const VERSION_BACKEND = '2026-11-18.5';
+const VERSION_BACKEND = '2026-11-18.6';
 
 const CONFIG = {
   EMPRESA: {
@@ -50,6 +50,9 @@ const CONFIG = {
   DURACION_SESION_DIAS: 30,          // días que la app recuerda el ingreso en ese navegador
   ADMINS: [],                        // correos que siempre son administradores (además de la cuenta dueña)
   PERMITIR_REGISTRO: true,           // comerciales y supervisores se registran solos con su correo; quedan como Comercial
+  // "Continuar con Google": ID de cliente OAuth (tipo Aplicación web) creado en console.cloud.google.com.
+  // Debe ser el mismo que GOOGLE_CLIENT_ID en app.js. Vacío = solo ingreso con código al correo.
+  GOOGLE_CLIENT_ID: '',
   DOMINIOS_REGISTRO: [],             // vacío = cualquier correo; p.ej. ['specialcar.com.co','gmail.com'] para restringir
   AVISAR_REGISTROS: true,            // gerencia y administradores reciben un correo con cada registro nuevo
   HORA_AGENDA: 7,                    // hora (0-23) del correo diario de agenda e informe
@@ -92,10 +95,13 @@ function doPost(e) {
       case 'ping':            return json_(estadoServicio_());
       case 'solicitarCodigo': return json_(solicitarCodigo_(p.correo, p.registro));
       case 'verificarCodigo': return json_(verificarCodigo_(p.correo, p.codigo));
+      case 'ingresarGoogle':  return json_(ingresarGoogle_(p.credential));
+      case 'completarRegistro': return json_(completarRegistro_(p.registroToken, p.datos));
     }
     const u = usuarioDeToken_(p.token);
     if (!u) return json_({ error: 'sesion' });
     switch (p.accion) {
+      case 'guardarPerfil':      return json_(guardarPerfil_(u, p.datos));
       case 'cerrarSesion':       PropertiesService.getScriptProperties().deleteProperty('SES_' + p.token); return json_({ ok: true });
       case 'obtenerDatos':       return json_(obtenerDatos_(u, p.version));
       case 'guardarLead':        return json_(guardarLead_(u, p.lead));
@@ -120,7 +126,7 @@ function estadoServicio_() {
   let ult = null, err = props.getProperty('ULTIMO_INFORME_ERROR');
   try { ult = JSON.parse(props.getProperty('ULTIMO_INFORME') || 'null'); } catch (e) {}
   const disp = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'informeDiarioAutomatico').length;
-  return { ok: true, empresa: CONFIG.EMPRESA.nombre, version: VERSION_BACKEND, registro: CONFIG.PERMITIR_REGISTRO,
+  return { ok: true, empresa: CONFIG.EMPRESA.nombre, version: VERSION_BACKEND, registro: CONFIG.PERMITIR_REGISTRO, google: !!CONFIG.GOOGLE_CLIENT_ID,
     informeAutomatico: { programado: disp > 0, hora: CONFIG.HORA_AGENDA + ':00', zona: CONFIG.ZONA, ultimoEnvio: ult ? ult.fecha : null, periodo: ult ? ult.desde + ' a ' + ult.hasta : null, gestiones: ult ? ult.gestiones : null, ultimoError: err || null } };
 }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
@@ -157,7 +163,7 @@ function siguiente_(clave) {
 const pad_ = (n, l) => ('00000000' + n).slice(-Math.max(l, String(n).length));
 
 // ===================== USUARIOS Y ACCESO =====================
-const ENC_USUARIOS = ['Correo', 'Nombre', 'Rol', 'Activo', 'Teléfono', 'Cargo', 'Creado', 'Último ingreso', 'Supervisor'];
+const ENC_USUARIOS = ['Correo', 'Nombre', 'Rol', 'Activo', 'Teléfono', 'Cargo', 'Creado', 'Último ingreso', 'Supervisor', 'Documento', 'Ciudad', 'Dirección', 'Contacto de emergencia', 'Teléfono de emergencia', 'Foto', 'Origen registro'];
 function correoOk_(c) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c); }
 function normCorreo_(c) { return String(c || '').trim().toLowerCase(); }
 
@@ -172,7 +178,8 @@ function leerUsuarios_() {
     const correo = normCorreo_(f[0]);
     return { fila: i + 2, correo: correo, nombre: String(f[1] || correo), rol: admins.indexOf(correo) >= 0 ? 'admin' : rolDe_(f[2]),
       activo: !/^(no|false|0|inactivo)$/i.test(String(f[3]).trim()), telefono: String(f[4] || ''), cargo: String(f[5] || ''), supervisor: normCorreo_(f[8]),
-      creado: f[6] instanceof Date ? f[6].toISOString() : String(f[6] || '') };
+      creado: f[6] instanceof Date ? f[6].toISOString() : String(f[6] || ''), documento: String(f[9] || ''), ciudad: String(f[10] || ''), direccion: String(f[11] || ''),
+      contactoEmergencia: String(f[12] || ''), telEmergencia: String(f[13] || ''), foto: String(f[14] || ''), origen: String(f[15] || '') };
   });
 }
 function asegurarUsuariosIniciales_(h) {
@@ -181,7 +188,26 @@ function asegurarUsuariosIniciales_(h) {
   lista.forEach(c => h.appendRow([c, c === dueno ? 'Administrador' : c, 'Administrador', 'Sí', '', 'Gerente comercial', new Date(), '']));
 }
 function usuarioPorCorreo_(correo) { correo = normCorreo_(correo); return leerUsuarios_().filter(u => u.correo === correo)[0] || null; }
-const publico_ = u => ({ correo: u.correo, nombre: u.nombre, rol: u.rol, activo: u.activo, telefono: u.telefono, cargo: u.cargo, supervisor: u.supervisor || '', creado: u.creado || '' });
+// Datos de un usuario para la app. Los datos personales (documento, dirección, emergencia) solo los ven
+// gerencia/administradores y la propia persona; los demás ven nombre, contacto y foto.
+function publico_(x, viewer) {
+  const b = { correo: x.correo, nombre: x.nombre, rol: x.rol, activo: x.activo, telefono: x.telefono, cargo: x.cargo, supervisor: x.supervisor || '', creado: x.creado || '', foto: x.foto || '', ciudad: x.ciudad || '' };
+  if (!viewer || viewer.correo === x.correo || verTodo_(viewer)) Object.assign(b, { documento: x.documento || '', direccion: x.direccion || '', contactoEmergencia: x.contactoEmergencia || '', telEmergencia: x.telEmergencia || '', origen: x.origen || '' });
+  return b;
+}
+// Valida los datos de perfil (registro y "Mi perfil"): obligatorios nombre, celular, documento y ciudad; foto opcional
+function datosPerfil_(d) {
+  d = d || {};
+  const t = (x, n) => String(x || '').trim().replace(/\s+/g, ' ').slice(0, n);
+  const r = { nombre: t(d.nombre, 80), telefono: t(String(d.telefono || '').replace(/[^\d+ ]/g, ''), 20), documento: t(String(d.documento || '').replace(/[^\dA-Za-z.-]/g, ''), 20),
+    ciudad: t(d.ciudad, 60), direccion: t(d.direccion, 120), contactoEmergencia: t(d.contactoEmergencia, 80), telEmergencia: t(String(d.telEmergencia || '').replace(/[^\d+ ]/g, ''), 20), foto: String(d.foto || '') };
+  if (r.nombre.length < 5 || r.nombre.indexOf(' ') < 0) throw new Error('Escribe tu nombre y apellido');
+  if (r.telefono.replace(/\D/g, '').length < 7) throw new Error('Escribe tu número de celular');
+  if (r.documento.replace(/\W/g, '').length < 5) throw new Error('Escribe tu número de cédula');
+  if (r.ciudad.length < 3) throw new Error('Escribe tu ciudad');
+  if (r.foto && !(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(r.foto) && r.foto.length <= 45000) && !/^https:\/\/[a-z0-9.-]*googleusercontent\.com\//.test(r.foto)) r.foto = '';
+  return r;
+}
 // Correos cuyos leads ve el usuario: todos (gerencia/admin), él + su equipo (supervisor), solo él (comercial)
 function alcance_(u, usuarios) {
   if (verTodo_(u)) return null;
@@ -206,11 +232,8 @@ function solicitarCodigo_(correo, registro) {
     if (!CONFIG.PERMITIR_REGISTRO) throw new Error('El registro está desactivado. Pide al administrador que te registre.');
     const dom = correo.split('@')[1];
     if (CONFIG.DOMINIOS_REGISTRO.length && CONFIG.DOMINIOS_REGISTRO.map(normCorreo_).indexOf(dom) < 0) throw new Error('Solo se pueden registrar correos de: ' + CONFIG.DOMINIOS_REGISTRO.join(', '));
-    nombre = String(registro.nombre || '').trim().replace(/\s+/g, ' ');
-    if (nombre.length < 5 || nombre.indexOf(' ') < 0) throw new Error('Escribe tu nombre y apellido');
-    const tel = String(registro.telefono || '').replace(/[^\d+ ]/g, '').trim();
-    if (tel.replace(/\D/g, '').length < 7) throw new Error('Escribe tu número de celular');
-    cacheR.put('REG_' + correo, JSON.stringify({ nombre: nombre.slice(0, 80), telefono: tel.slice(0, 20) }), 900);
+    const datos = datosPerfil_(registro); nombre = datos.nombre;
+    cacheR.put('REG_' + correo, JSON.stringify(Object.assign(datos, { origen: 'Código al correo' })), 900);
   }
   const cache = CacheService.getScriptCache();
   const nEnvios = Number(cache.get('OTPN_' + correo)) || 0;
@@ -232,7 +255,8 @@ function crearRegistro_(correo, reg) {
   const lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     if (usuarioPorCorreo_(correo)) return;
-    hoja_('Usuarios', ENC_USUARIOS).appendRow([correo, reg.nombre, 'Comercial', 'Sí', reg.telefono, 'Asesor comercial', new Date(), '', '']);
+    hoja_('Usuarios', ENC_USUARIOS).appendRow([correo, reg.nombre, 'Comercial', 'Sí', reg.telefono, 'Asesor comercial', new Date(), '', '',
+      reg.documento || '', reg.ciudad || '', reg.direccion || '', reg.contactoEmergencia || '', reg.telEmergencia || '', reg.foto || '', reg.origen || '']);
     tocarVersion_();
   } finally { lock.releaseLock(); }
   if (!CONFIG.AVISAR_REGISTROS) return;
@@ -265,14 +289,72 @@ function verificarCodigo_(correo, codigo) {
     if (!reg || !CONFIG.PERMITIR_REGISTRO) throw new Error('Este correo no está registrado');
     crearRegistro_(correo, JSON.parse(reg)); cache.remove('REG_' + correo);
   }
-  const u = usuarioPorCorreo_(correo);
+  return abrirSesion_(usuarioPorCorreo_(correo));
+}
+function abrirSesion_(u) {
   if (!u || !u.activo) throw new Error('Usuario inactivo');
   const token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
   const props = PropertiesService.getScriptProperties();
   limpiarSesiones_(props);
-  props.setProperty('SES_' + token, JSON.stringify({ c: correo, e: Date.now() + CONFIG.DURACION_SESION_DIAS * 86400000 }));
+  props.setProperty('SES_' + token, JSON.stringify({ c: u.correo, e: Date.now() + CONFIG.DURACION_SESION_DIAS * 86400000 }));
   try { hoja_('Usuarios', ENC_USUARIOS).getRange(u.fila, 8).setValue(new Date()); } catch (e) {}
-  return { ok: true, token: token, usuario: publico_(u) };
+  return { ok: true, token: token, usuario: publico_(u, u) };
+}
+
+// ---------- Continuar con Google ----------
+// Verifica el token de Google Identity Services (firma, audiencia y vencimiento los valida el endpoint tokeninfo de Google)
+function verificarGoogle_(credential) {
+  if (!CONFIG.GOOGLE_CLIENT_ID) throw new Error('El ingreso con Google no está configurado (CONFIG.GOOGLE_CLIENT_ID)');
+  if (!credential || String(credential).split('.').length !== 3) throw new Error('Respuesta de Google inválida');
+  const r = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential), { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('Google no validó el ingreso. Inténtalo de nuevo.');
+  const t = JSON.parse(r.getContentText());
+  if (t.aud !== CONFIG.GOOGLE_CLIENT_ID) throw new Error('El ingreso con Google no corresponde a esta app');
+  if (['accounts.google.com', 'https://accounts.google.com'].indexOf(t.iss) < 0) throw new Error('Emisor de Google inválido');
+  if (String(t.email_verified) !== 'true') throw new Error('Tu correo de Google no está verificado');
+  if (Number(t.exp) * 1000 < Date.now()) throw new Error('El ingreso con Google venció. Inténtalo de nuevo.');
+  return { correo: normCorreo_(t.email), nombre: String(t.name || ''), foto: String(t.picture || '') };
+}
+/** Ingreso con Google: si ya está registrado abre la sesión; si es nuevo devuelve sus datos para completar el registro. */
+function ingresarGoogle_(credential) {
+  const g = verificarGoogle_(credential);
+  const u = usuarioPorCorreo_(g.correo);
+  if (u) {
+    if (!u.activo) throw new Error('Tu usuario está inactivo. Comunícate con gerencia o el administrador.');
+    if (!u.foto && g.foto) { try { hoja_('Usuarios', ENC_USUARIOS).getRange(u.fila, 15).setValue(g.foto); u.foto = g.foto; } catch (e) {} }
+    return abrirSesion_(u);
+  }
+  if (!CONFIG.PERMITIR_REGISTRO) throw new Error('Tu correo no está registrado. Pide al administrador que te agregue.');
+  const dom = g.correo.split('@')[1];
+  if (CONFIG.DOMINIOS_REGISTRO.length && CONFIG.DOMINIOS_REGISTRO.map(normCorreo_).indexOf(dom) < 0) throw new Error('Solo se pueden registrar correos de: ' + CONFIG.DOMINIOS_REGISTRO.join(', '));
+  const rt = Utilities.getUuid().replace(/-/g, '');
+  CacheService.getScriptCache().put('GREG_' + rt, JSON.stringify(g), 1800);
+  return { ok: true, nuevo: true, registroToken: rt, correo: g.correo, nombre: g.nombre, foto: g.foto };
+}
+/** Termina el registro hecho con Google: datos personales obligatorios + foto opcional. */
+function completarRegistro_(registroToken, datos) {
+  const cache = CacheService.getScriptCache();
+  const raw = registroToken && cache.get('GREG_' + registroToken);
+  if (!raw) throw new Error('El registro venció. Vuelve a hacer clic en "Continuar con Google".');
+  const g = JSON.parse(raw);
+  const d = datosPerfil_(datos);
+  if (!d.foto && g.foto) d.foto = g.foto;
+  crearRegistro_(g.correo, Object.assign(d, { origen: 'Google' }));
+  cache.remove('GREG_' + registroToken);
+  return abrirSesion_(usuarioPorCorreo_(g.correo));
+}
+/** "Mi perfil": cada usuario actualiza sus datos personales y su foto (no su perfil ni su equipo). */
+function guardarPerfil_(u, datos) {
+  const d = datosPerfil_(datos);
+  if (datos && datos.foto === '') d.foto = '';
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    const h = hoja_('Usuarios', ENC_USUARIOS);
+    h.getRange(u.fila, 2).setValue(d.nombre); h.getRange(u.fila, 5).setValue(d.telefono);
+    h.getRange(u.fila, 10, 1, 6).setValues([[d.documento, d.ciudad, d.direccion, d.contactoEmergencia, d.telEmergencia, d.foto]]);
+    tocarVersion_();
+  } finally { lock.releaseLock(); }
+  return { ok: true, usuario: publico_(usuarioPorCorreo_(u.correo), u) };
 }
 function limpiarSesiones_(props) {
   const ahora = Date.now(), todo = props.getProperties();
@@ -309,7 +391,7 @@ function guardarUsuario_(u, nuevo) {
     if (ex && ex.rol === 'supervisor' && rol !== 'supervisor') todos.filter(x => x.supervisor === correo).forEach(x => h.getRange(x.fila, 9).setValue(''));
     tocarVersion_();
   } finally { lock.releaseLock(); }
-  return { ok: true, usuarios: leerUsuarios_().map(publico_) };
+  return { ok: true, usuarios: leerUsuarios_().map(x => publico_(x, u)) };
 }
 
 // ===================== LEADS =====================
@@ -722,8 +804,8 @@ function obtenerDatos_(u, version) {
   const leads = leerLeads_().filter(l => puedeVer_(u, l, alc)).map(limpio_);
   const ids = {}; leads.forEach(l => ids[l.id] = true);
   const cots = leerCotizaciones_().filter(c => ids[c.leadId]).map(limpio_);
-  return { version: v, versionBackend: VERSION_BACKEND, usuario: publico_(u), usuarios: usuarios.map(publico_), leads: leads, cotizaciones: cots,
-    registroAbierto: CONFIG.PERMITIR_REGISTRO, empresa: CONFIG.EMPRESA, validezCotizacion: CONFIG.VALIDEZ_COTIZACION_DIAS, calendario: CONFIG.CALENDARIO_NOMBRE || 'principal',
+  return { version: v, versionBackend: VERSION_BACKEND, usuario: publico_(u, u), usuarios: usuarios.map(x => publico_(x, u)), leads: leads, cotizaciones: cots,
+    registroAbierto: CONFIG.PERMITIR_REGISTRO, googleClientId: CONFIG.GOOGLE_CLIENT_ID, empresa: CONFIG.EMPRESA, validezCotizacion: CONFIG.VALIDEZ_COTIZACION_DIAS, calendario: CONFIG.CALENDARIO_NOMBRE || 'principal',
     hoja: verTodo_(u) ? libro_().getUrl() : '', carpeta: verTodo_(u) ? (PropertiesService.getScriptProperties().getProperty('CARPETA_COT_URL') || '') : '' };
 }
 

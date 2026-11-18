@@ -15,12 +15,12 @@
   <div class="login-box">
     <img src="img/logo-azul.png" alt="Special Car" class="login-logo" />
     <h1>Seguimiento comercial</h1>
-    <p class="td-sub">Ingresa con tu correo electrónico personal</p>
+    <p class="td-sub" id="lg-sub">Ingresa con tu cuenta de Google o con tu correo</p>
     <form id="lg-paso1" onsubmit="pedirCodigo(event)">
       <div class="lg-tabs"><button type="button" id="lg-tab-entrar" class="activo" onclick="modoRegistro(false)">Ingresar</button><button type="button" id="lg-tab-registro" onclick="modoRegistro(true)">Crear cuenta</button></div>
-      <div class="form-group lg-reg hidden"><label>Nombre y apellido</label><input id="lg-nombre" autocomplete="name" placeholder="Como aparecerá en las cotizaciones" /></div>
-      <div class="form-group"><label>Correo electrónico</label><input type="email" id="lg-correo" autocomplete="email" placeholder="tucorreo@gmail.com" required /></div>
-      <div class="form-group lg-reg hidden"><label>Celular</label><input id="lg-tel" type="tel" autocomplete="tel" placeholder="300 123 4567" /></div>
+      <div id="lg-google-box" class="lg-google-box hidden"><div id="lg-google"></div><div class="lg-sep"><span>o con tu correo</span></div></div>
+      <div class="form-group"><label>Correo electrónico *</label><input type="email" id="lg-correo" autocomplete="email" placeholder="tucorreo@gmail.com" required /></div>
+      <div id="lg-reg-campos" class="lg-reg hidden"></div>
       <button id="lg-btn1" class="btn btn-primary-dark btn-block" type="submit">Enviarme un código de acceso</button>
       <p class="td-sub lg-ayuda" id="lg-ayuda1">Te llegará un código de 6 dígitos a ese correo. ¿Primera vez? Usa <button type="button" class="link-btn" onclick="modoRegistro(true)">Crear cuenta</button>.</p>
       <p class="td-sub lg-ayuda lg-reg hidden">Quedarás registrado como <b>Comercial</b>. Gerencia te asignará tu supervisor o cambiará tu perfil si eres supervisor.</p>
@@ -31,7 +31,14 @@
       <button id="lg-btn2" class="btn btn-primary-dark btn-block" type="submit">Entrar</button>
       <p class="td-sub lg-ayuda"><button type="button" class="link-btn" onclick="mostrarLogin()">← Usar otro correo</button> · <button type="button" class="link-btn" onclick="pedirCodigo()">Reenviar código</button></p>
     </form>
-    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code>.</div>
+    <form id="lg-paso3" class="hidden" onsubmit="terminarRegistroGoogle(event)">
+      <div class="lg-gcuenta"><span id="lg-g-avatar"></span><div><b id="lg-g-nombre"></b><small id="lg-g-correo"></small></div></div>
+      <p class="td-sub" style="text-align:center">Completa tus datos de contacto para terminar el registro.</p>
+      <div id="lg-g-campos"></div>
+      <button id="lg-btn3" class="btn btn-primary-dark btn-block" type="submit">Terminar registro</button>
+      <p class="td-sub lg-ayuda"><button type="button" class="link-btn" onclick="mostrarLogin()">← Cancelar</button></p>
+    </form>
+    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code>. El botón de Google del demo simula una cuenta nueva (o usa el correo que escribas).</div>
   </div>
 </div>
 
@@ -52,7 +59,7 @@
       </nav>
       <div class="header-actions">
         <button class="btn btn-primary" onclick="abrirFormLead()">+ Nuevo lead</button>
-        <div class="user-chip" id="user-chip"></div>
+        <button class="user-chip" id="user-chip" onclick="abrirMiPerfil()" title="Mi perfil"></button>
         <button class="btn btn-outline btn-sm" onclick="cerrarSesion()" title="Cerrar sesión">Salir</button>
       </div>
     </div>
@@ -223,6 +230,7 @@
 <datalist id="dl-marcas"></datalist><datalist id="dl-refs"></datalist>
 <div id="toast" class="toast hidden"></div>
 
+<script src="https://accounts.google.com/gsi/client" async defer onload="window._gsiListo=true;if(window.iniciarGoogle)iniciarGoogle()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>

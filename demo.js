@@ -4,7 +4,7 @@
 // esté vacía. Para empezar de cero: DemoBackend.reiniciar().
 // =====================================================================
 const DemoBackend = (() => {
-  const CLAVE = 'vt_demo_v4';
+  const CLAVE = 'vt_demo_v5';
   let db = null;
   const ahora = () => new Date().toISOString();
   const rid = p => p + '-' + Math.random().toString(36).slice(2, 10);
@@ -37,6 +37,8 @@ const DemoBackend = (() => {
       ['Hernán Darío Pérez', '3027778811', 'Toyota', 'Hilux', 'SRV 4x4 2026', 'Cliente antiguo', 'entregado', null, '', 'andrea.mejia@gmail.com', -60, 219900000, 'Leasing'],
       ['Carolina Ríos', '3175553311', 'Chevrolet', 'Onix', 'Turbo RS 2026', 'Página web', 'perdido', null, '', 'carlos.ruiz@gmail.com', -15, 82990000, 'Crédito']
     ];
+    const ciudades = ['Bogotá', 'Bogotá', 'Chía', 'Bogotá', 'Soacha'];
+    U.forEach((u, i) => Object.assign(u, { documento: String(1010200300 + i * 1111), ciudad: ciudades[i], direccion: '', contactoEmergencia: '', telEmergencia: '', foto: '', creado: ts(-40, 9), origen: 'manual' }));
     const leads = [], cots = []; let nCot = 0;
     const camino = ['nuevo', 'contactado', 'cita', 'prueba', 'cotizado', 'negociacion', 'credito', 'aprobado', 'facturado', 'entregado'];
     ej.forEach((x, i) => {
@@ -97,8 +99,8 @@ const DemoBackend = (() => {
       if (u && !u.activo) throw new Error('Tu usuario está inactivo. Comunícate con gerencia o el administrador.');
       if (!u) {
         if (!p.registro) throw new Error('Este correo no está registrado. Usa "Crear cuenta" para registrarte (en el demo también puedes usar gerente@demo.com, supervisor@demo.com o carlos.ruiz@gmail.com).');
-        if (String(p.registro.nombre || '').trim().split(/\s+/).length < 2) throw new Error('Escribe tu nombre y apellido');
-        db.pendientes = db.pendientes || {}; db.pendientes[c] = { nombre: p.registro.nombre.trim(), telefono: p.registro.telefono.trim() };
+        const err = validarPerfil(p.registro); if (err) throw new Error(err);
+        db.pendientes = db.pendientes || {}; db.pendientes[c] = Object.assign({}, p.registro, { origen: 'Código al correo' });
       }
       return { ok: true, enviado: true, codigoDemo: '123456', nuevo: !u };
     },
@@ -107,11 +109,31 @@ const DemoBackend = (() => {
       const c = String(p.correo).toLowerCase();
       if (!db.usuarios.find(x => x.correo === c)) {
         const r = (db.pendientes || {})[c]; if (!r) throw new Error('Este correo no está registrado');
-        db.usuarios.push({ correo: c, nombre: r.nombre, rol: 'comercial', activo: true, telefono: r.telefono, cargo: 'Asesor comercial', supervisor: '', creado: ahora() }); delete db.pendientes[c]; tocar();
+        db.usuarios.push(Object.assign({ correo: c, rol: 'comercial', activo: true, cargo: 'Asesor comercial', supervisor: '', creado: ahora() }, r)); delete db.pendientes[c]; tocar();
       }
       const u = db.usuarios.find(x => x.correo === c); return { ok: true, token: 'demo:' + u.correo, usuario: copia(u) };
     },
     cerrarSesion() { return { ok: true }; },
+    // "Continuar con Google" simulado: el token del demo trae el perfil en base64 (el real lo valida Google en el backend)
+    ingresarGoogle(p) {
+      let g; try { g = JSON.parse(decodeURIComponent(escape(atob(String(p.credential).split('.')[1])))); } catch (e) { throw new Error('Respuesta de Google inválida'); }
+      const c = String(g.email).toLowerCase(), u = db.usuarios.find(x => x.correo === c);
+      if (u) { if (!u.activo) throw new Error('Tu usuario está inactivo. Comunícate con gerencia o el administrador.'); return { ok: true, token: 'demo:' + u.correo, usuario: copia(u) }; }
+      db.gpend = db.gpend || {}; const rt = rid('G'); db.gpend[rt] = { correo: c, nombre: g.name || '', foto: g.picture || '' };
+      return { ok: true, nuevo: true, registroToken: rt, correo: c, nombre: g.name || '', foto: g.picture || '' };
+    },
+    completarRegistro(p) {
+      const g = (db.gpend || {})[p.registroToken]; if (!g) throw new Error('El registro venció. Vuelve a hacer clic en "Continuar con Google".');
+      const err = validarPerfil(p.datos || {}); if (err) throw new Error(err);
+      if (!db.usuarios.find(x => x.correo === g.correo)) db.usuarios.push(Object.assign({ correo: g.correo, rol: 'comercial', activo: true, cargo: 'Asesor comercial', supervisor: '', creado: ahora(), origen: 'Google' }, p.datos, { foto: p.datos.foto || g.foto }));
+      delete db.gpend[p.registroToken]; tocar();
+      const u = db.usuarios.find(x => x.correo === g.correo); return { ok: true, token: 'demo:' + u.correo, usuario: copia(u) };
+    },
+    guardarPerfil(p, u) {
+      const err = validarPerfil(p.datos || {}); if (err) throw new Error(err);
+      const d = p.datos; Object.assign(u, { nombre: d.nombre, telefono: d.telefono, documento: d.documento, ciudad: d.ciudad, direccion: d.direccion, contactoEmergencia: d.contactoEmergencia, telEmergencia: d.telEmergencia, foto: d.foto || '' });
+      tocar(); return { ok: true, usuario: copia(u) };
+    },
     obtenerDatos(p, u) {
       if (p.version && p.version === db.version) return { sinCambios: true, version: db.version };
       const leads = db.leads.filter(l => puedeVer(u, l)); const ids = new Set(leads.map(l => l.id));
@@ -216,7 +238,7 @@ const DemoBackend = (() => {
     async llamar(p) {
       cargar(); await new Promise(r => setTimeout(r, 120));
       try {
-        const publica = ['solicitarCodigo', 'verificarCodigo', 'ping'].includes(p.accion);
+        const publica = ['solicitarCodigo', 'verificarCodigo', 'ingresarGoogle', 'completarRegistro', 'ping'].includes(p.accion);
         const u = publica ? null : usuarioDe(p.token);
         if (!publica && !u) return { error: 'sesion' };
         if (!acciones[p.accion]) return { error: 'accion desconocida: ' + p.accion };

@@ -6,8 +6,9 @@ App para el equipo comercial, construida sobre el módulo de **Cartera** de Spec
 
 | Función | Detalle |
 |---|---|
-| **Ingreso por correo personal** | Cada persona escribe su correo (Gmail, Hotmail, corporativo…) y recibe un **código de 6 dígitos**. La sesión se recuerda 30 días en ese navegador. |
-| **Registro propio** | Comerciales y supervisores se registran solos en **Crear cuenta** (nombre, correo y celular; el código confirma que el correo es suyo) y **quedan como Comercial**. Gerencia y administradores reciben un correo por cada registro, y en 👥 Usuarios los nuevos aparecen marcados para **cambiar el perfil a Supervisor** o **asignarles su supervisor**; a quien no pertenezca al equipo se le desactiva (un usuario inactivo no puede volver a registrarse). Se puede restringir a ciertos dominios con `CONFIG.DOMINIOS_REGISTRO` o apagar con `CONFIG.PERMITIR_REGISTRO = false`. |
+| **Ingreso** | **Continuar con Google** (un clic con su cuenta de Google) o, para quien no tenga cuenta de Google, con su correo y un **código de 6 dígitos**. La sesión se recuerda 30 días en ese navegador. |
+| **Perfil del usuario** | Al registrarse (con Google o con código) se piden los datos de contacto: **obligatorios** nombre y apellido, correo, celular, cédula y ciudad; **opcionales** foto, dirección y contacto de emergencia. Con Google, el correo, el nombre y la foto vienen de la cuenta. Cada uno los actualiza en **Mi perfil** (clic en su foto o nombre arriba a la derecha) y a los usuarios antiguos la app les pide completarlos al entrar. La cédula, la dirección y el contacto de emergencia solo los ven gerencia, los administradores y la propia persona. |
+| **Registro propio** | Comerciales y supervisores se registran solos en **Crear cuenta** o con **Continuar con Google** (Google o el código confirman que el correo es suyo) y **quedan como Comercial**. Gerencia y administradores reciben un correo por cada registro, y en 👥 Usuarios los nuevos aparecen marcados para **cambiar el perfil a Supervisor** o **asignarles su supervisor**; a quien no pertenezca al equipo se le desactiva (un usuario inactivo no puede volver a registrarse). Se puede restringir a ciertos dominios con `CONFIG.DOMINIOS_REGISTRO` o apagar con `CONFIG.PERMITIR_REGISTRO = false`. |
 | **Leads** | **# Lead** consecutivo (L-0001…), nombre del prospecto, teléfono (enlace a WhatsApp), correo, cédula, ciudad, **fecha de contacto**, **fecha y hora de seguimiento**, **marca** y **referencia** del vehículo, versión, origen, forma de pago, retoma, valor estimado, observaciones. Aviso de duplicado por teléfono. |
 | **Vista Kanban** | Vista principal de los leads en **2 filas de 5 columnas** (Nuevo → Entregado; los entregados de los últimos 30 días y un enlace a los perdidos) y en cada tarjeta **solo el nombre del prospecto** (borde rojo = seguimiento vencido, azul = hoy, ámbar = sin fecha). Al hacer clic se abre la ficha con todo lo necesario para gestionar: WhatsApp/llamada, vehículo, próximo seguimiento, registro de gestión, cotizaciones, cierre de venta e historial. Arrastrar la tarjeta cambia el estado. También hay vista de tabla. |
 | **Estados hasta la finalización** | Nuevo → Contactado → Cita / visita → Prueba de manejo → Cotizado → Negociación → Crédito en estudio → Aprobado / separado → Facturado → **Entregado** (fin, venta) · o **Perdido** (fin, con motivo obligatorio). Cada cambio queda en el historial con fecha y usuario. Se cambia desde la tabla, la ficha (barra de pasos) o arrastrando en el **tablero**. |
@@ -54,7 +55,20 @@ Una cuenta de Google que será la "dueña" del sistema, por ejemplo `ventas@spec
 2. Publicar la carpeta en **GitHub Pages** (repositorio nuevo → *Settings → Pages → Deploy from branch → main / root*). También puede ir como subcarpeta `ventas/` del repositorio SpecialTO.
 3. En `Ventas.gs`, poner esa dirección en `CONFIG.URL_APP` (por ejemplo `https://kaph2194.github.io/VentasSpecial`) y publicar una nueva versión (paso "Mantenimiento"): así los correos muestran el logo y traen un enlace directo al lead.
 
-### 5. Registrar a los comerciales
+### 5. Ingreso con Google (una vez, ~10 minutos)
+Con la cuenta dueña (directortransporte@specialcar.com.co):
+1. Abrir <https://console.cloud.google.com> → arriba, **Seleccionar proyecto → Proyecto nuevo** → nombre `Ventas Special Car` → Crear.
+2. Menú ☰ → **APIs y servicios → Pantalla de consentimiento de OAuth** (o *Google Auth Platform*) → **Comenzar**: nombre de la app `Special Car - Ventas`, correo de asistencia, **Público: Externo** (para que entren correos personales como Gmail), correo de contacto → Crear.
+3. En **Público**, pulsar **Publicar app** (pasa a *En producción*). Solo usa los permisos básicos (correo, nombre y foto), así que Google no exige verificación.
+4. **APIs y servicios → Credenciales → + Crear credenciales → ID de cliente de OAuth** → Tipo **Aplicación web** → nombre `Ventas web` → en **Orígenes autorizados de JavaScript** agregar `https://kaph2194.github.io` → Crear.
+5. Copiar el **ID de cliente** (termina en `.apps.googleusercontent.com`) y pegarlo en:
+   - `Ventas.gs` → `CONFIG.GOOGLE_CLIENT_ID: '...'` (y publicar nueva versión), y
+   - `app.js` → `const GOOGLE_CLIENT_ID = '...';` (o enviarlo para que lo suban a GitHub).
+6. En el editor de Apps Script, ejecutar una vez `configurarTodo` y **Permitir** el permiso nuevo *"Conectarse a un servicio externo"* (lo usa el backend para validar con Google cada ingreso).
+
+Mientras no haya ID de cliente, el botón de Google no aparece y el ingreso sigue funcionando con el código al correo.
+
+### 6. Registrar a los comerciales
 Compartir la dirección de la app con el equipo para que cada uno se registre en **Crear cuenta** (https://kaph2194.github.io/VentasSpecial/?real&registro abre directamente el registro). Todos quedan como **Comercial**. Luego, con la cuenta dueña o de gerencia, en **👥 Usuarios**: cambiar a **Supervisor** a quien corresponda y, en cada comercial, elegir su **supervisor a cargo**. También se pueden crear usuarios a mano con **+ Agregar usuario**.
 
 ---
