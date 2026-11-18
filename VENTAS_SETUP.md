@@ -48,7 +48,7 @@ Una cuenta de Google que será la "dueña" del sistema, por ejemplo `ventas@spec
 ### 4. Conectar la página
 1. En [`app.js`](app.js), pegar la URL en `const VENTAS_WEBAPP_URL = '...';` (al inicio del archivo).
 2. Publicar la carpeta en **GitHub Pages** (repositorio nuevo → *Settings → Pages → Deploy from branch → main / root*). También puede ir como subcarpeta `ventas/` del repositorio SpecialTO.
-3. En `Ventas.gs`, poner esa dirección en `CONFIG.URL_APP` (por ejemplo `https://kaph2194.github.io/SpecialVentas`) y publicar una nueva versión (paso "Mantenimiento"): así los correos muestran el logo y traen un enlace directo al lead.
+3. En `Ventas.gs`, poner esa dirección en `CONFIG.URL_APP` (por ejemplo `https://kaph2194.github.io/VentasSpecial`) y publicar una nueva versión (paso "Mantenimiento"): así los correos muestran el logo y traen un enlace directo al lead.
 
 ### 5. Registrar a los comerciales
 Entrar a la app con la cuenta dueña → **👥 Usuarios → + Agregar usuario**: correo personal, nombre, teléfono y cargo (salen en las cotizaciones), rol. Cada comercial ya puede entrar con su correo.

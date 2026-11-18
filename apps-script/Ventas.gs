@@ -36,7 +36,7 @@ const CONFIG = {
   },
   NOMBRE_REMITENTE: 'Ventas - Special Car',
   ZONA: 'America/Bogota',
-  URL_APP: '',                       // URL pública de la app (GitHub Pages); se pone en los correos y eventos
+  URL_APP: 'https://kaph2194.github.io/VentasSpecial',                       // URL pública de la app (GitHub Pages); se pone en los correos y eventos
   SHEET_ID: '',                      // vacío = se crea "Ventas - Seguimiento comercial" en el Drive de la cuenta dueña
   CALENDARIO_NOMBRE: 'Ventas - Seguimientos',  // '' = calendario principal de la cuenta dueña
   ENVIAR_INVITACIONES: true,         // el comercial recibe la invitación (así queda en SU calendario, sea Gmail u otro)
