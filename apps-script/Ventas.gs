@@ -18,7 +18,8 @@
  *       calendario con el comercial como invitado (recordatorios).
  *    4. Cotizaciones: consecutivo, PDF guardado en Drive, cotizaciones cargadas
  *       (PDF/imagen), envío por correo con el PDF adjunto.
- *    5. Agenda diaria por correo a cada comercial y resumen gerencial.
+ *    5. Perfiles: comercial, supervisor (equipo asignado por gerencia), gerencia y administrador.
+ *    6. Informe automático "día vencido" (gestiones del día anterior) a ceo@ y agenda diaria a cada comercial.
  *
  *  Instalación: ver VENTAS_SETUP.md.
  * =====================================================================
@@ -45,9 +46,12 @@ const CONFIG = {
   VALIDEZ_COTIZACION_DIAS: 8,
   DURACION_SESION_DIAS: 30,          // días que la app recuerda el ingreso en ese navegador
   ADMINS: [],                        // correos que siempre son administradores (además de la cuenta dueña)
-  HORA_AGENDA: 7,                    // hora (0-23) del correo diario de agenda / resumen
+  HORA_AGENDA: 7,                    // hora (0-23) del correo diario de agenda e informe
   ENVIAR_AGENDA_COMERCIALES: true,   // cada comercial recibe sus seguimientos vencidos y del día
-  ENVIAR_RESUMEN_GERENCIA: true,     // los administradores reciben el resumen diario
+  // Informe "día vencido": cada mañana llegan las gestiones del día anterior (el lunes: sábado y domingo)
+  CORREO_INFORME: 'ceo@specialcar.com.co',
+  CC_INFORME: [],                    // copias opcionales, p.ej. ['gerencia@specialcar.com.co']
+  INFORME_A_SUPERVISORES: true,      // cada supervisor recibe el mismo informe solo con su equipo
   DIAS_SIN_GESTION_ALERTA: 3         // leads activos sin gestión en N días aparecen en el resumen
 };
 
@@ -62,6 +66,11 @@ const ORDEN_ESTADO_ = {}; ESTADOS_.forEach((e, i) => ORDEN_ESTADO_[e[0]] = i);
 const FINALES_ = ['entregado', 'perdido'];
 const GANADOS_ = ['facturado', 'entregado'];
 const esActivo_ = l => FINALES_.indexOf(l.estado) < 0;
+// Perfiles: comercial (sus leads) · supervisor (su equipo, asignado por gerencia) · gerencia y admin (todo)
+const ROLES_ = { comercial: 'Comercial', supervisor: 'Supervisor', gerencia: 'Gerencia', admin: 'Administrador' };
+const verTodo_ = u => u.rol === 'admin' || u.rol === 'gerencia';
+const gestionaUsuarios_ = u => verTodo_(u);
+function rolDe_(t) { t = String(t || ''); return /admin/i.test(t) ? 'admin' : /geren/i.test(t) ? 'gerencia' : /super/i.test(t) ? 'supervisor' : 'comercial'; }
 
 // ===================== WEB APP =====================
 function doGet() {
@@ -87,6 +96,9 @@ function doPost(e) {
       case 'guardarCotizacion':  return json_(guardarCotizacion_(u, p.cotizacion, p.pdfBase64, p.archivo));
       case 'obtenerArchivo':     return json_(obtenerArchivo_(u, p.cotizacionId));
       case 'enviarCotizacion':   return json_(enviarCotizacion_(u, p));
+      case 'guardarVenta':       return json_(guardarVenta_(u, p));
+      case 'subirDocumentoVenta':return json_(subirDocumentoVenta_(u, p));
+      case 'obtenerDocumento':   return json_(obtenerDocumento_(u, p.leadId, p.tipo));
       case 'guardarUsuario':     return json_(guardarUsuario_(u, p.usuario));
       case 'enviarInforme':      return json_(enviarInformeAhora_(u));
       default: return json_({ error: 'accion desconocida: ' + p.accion });
@@ -130,7 +142,7 @@ function siguiente_(clave) {
 const pad_ = (n, l) => ('00000000' + n).slice(-Math.max(l, String(n).length));
 
 // ===================== USUARIOS Y ACCESO =====================
-const ENC_USUARIOS = ['Correo', 'Nombre', 'Rol', 'Activo', 'Teléfono', 'Cargo', 'Creado', 'Último ingreso'];
+const ENC_USUARIOS = ['Correo', 'Nombre', 'Rol', 'Activo', 'Teléfono', 'Cargo', 'Creado', 'Último ingreso', 'Supervisor'];
 function correoOk_(c) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c); }
 function normCorreo_(c) { return String(c || '').trim().toLowerCase(); }
 
@@ -140,10 +152,11 @@ function leerUsuarios_() {
   const n = h.getLastRow() - 1;
   if (n < 1) return [];
   const admins = CONFIG.ADMINS.map(normCorreo_).concat([normCorreo_(Session.getEffectiveUser().getEmail())]);
+  if (h.getLastColumn && h.getLastColumn() < ENC_USUARIOS.length) h.getRange(1, 1, 1, ENC_USUARIOS.length).setValues([ENC_USUARIOS]);
   return h.getRange(2, 1, n, ENC_USUARIOS.length).getValues().filter(f => f[0]).map((f, i) => {
     const correo = normCorreo_(f[0]);
-    return { fila: i + 2, correo: correo, nombre: String(f[1] || correo), rol: admins.indexOf(correo) >= 0 || /admin/i.test(f[2]) ? 'admin' : 'comercial',
-      activo: !/^(no|false|0|inactivo)$/i.test(String(f[3]).trim()), telefono: String(f[4] || ''), cargo: String(f[5] || '') };
+    return { fila: i + 2, correo: correo, nombre: String(f[1] || correo), rol: admins.indexOf(correo) >= 0 ? 'admin' : rolDe_(f[2]),
+      activo: !/^(no|false|0|inactivo)$/i.test(String(f[3]).trim()), telefono: String(f[4] || ''), cargo: String(f[5] || ''), supervisor: normCorreo_(f[8]) };
   });
 }
 function asegurarUsuariosIniciales_(h) {
@@ -152,7 +165,14 @@ function asegurarUsuariosIniciales_(h) {
   lista.forEach(c => h.appendRow([c, c === dueno ? 'Administrador' : c, 'Administrador', 'Sí', '', 'Gerente comercial', new Date(), '']));
 }
 function usuarioPorCorreo_(correo) { correo = normCorreo_(correo); return leerUsuarios_().filter(u => u.correo === correo)[0] || null; }
-const publico_ = u => ({ correo: u.correo, nombre: u.nombre, rol: u.rol, activo: u.activo, telefono: u.telefono, cargo: u.cargo });
+const publico_ = u => ({ correo: u.correo, nombre: u.nombre, rol: u.rol, activo: u.activo, telefono: u.telefono, cargo: u.cargo, supervisor: u.supervisor || '' });
+// Correos cuyos leads ve el usuario: todos (gerencia/admin), él + su equipo (supervisor), solo él (comercial)
+function alcance_(u, usuarios) {
+  if (verTodo_(u)) return null;
+  const s = {}; s[u.correo] = true;
+  if (u.rol === 'supervisor') (usuarios || leerUsuarios_()).forEach(x => { if (x.supervisor === u.correo) s[x.correo] = true; });
+  return s;
+}
 
 /** Envía un código de 6 dígitos al correo del comercial (válido 10 minutos). */
 function solicitarCodigo_(correo) {
@@ -211,18 +231,25 @@ function usuarioDeToken_(token) {
   return u && u.activo ? u : null;
 }
 function guardarUsuario_(u, nuevo) {
-  if (u.rol !== 'admin') throw new Error('Solo un administrador puede gestionar usuarios');
+  if (!gestionaUsuarios_(u)) throw new Error('Solo gerencia o un administrador pueden gestionar usuarios');
   const correo = normCorreo_(nuevo && nuevo.correo);
   if (!correoOk_(correo)) throw new Error('Correo inválido');
-  if (correo === u.correo && nuevo.activo === false) throw new Error('No puedes desactivar tu propio usuario');
+  const rol = ROLES_[nuevo.rol] ? nuevo.rol : 'comercial';
+  if (correo === u.correo && (nuevo.activo === false || rol !== u.rol)) throw new Error('No puedes desactivar ni cambiar el perfil de tu propio usuario');
   const lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     const h = hoja_('Usuarios', ENC_USUARIOS);
-    const ex = leerUsuarios_().filter(x => x.correo === correo)[0];
-    const fila = [correo, String(nuevo.nombre || correo).trim(), nuevo.rol === 'admin' ? 'Administrador' : 'Comercial', nuevo.activo === false ? 'No' : 'Sí',
-      String(nuevo.telefono || '').trim(), String(nuevo.cargo || '').trim()];
-    if (ex) h.getRange(ex.fila, 1, 1, fila.length).setValues([fila]);
-    else h.appendRow(fila.concat([new Date(), '']));
+    const todos = leerUsuarios_();
+    const ex = todos.filter(x => x.correo === correo)[0];
+    if (u.rol !== 'admin' && (rol === 'admin' || (ex && ex.rol === 'admin'))) throw new Error('Solo un administrador puede crear o modificar administradores');
+    let sup = normCorreo_(nuevo.supervisor);
+    if (sup) { const s2 = todos.filter(x => x.correo === sup)[0]; if (!s2 || s2.rol !== 'supervisor') throw new Error('El supervisor asignado no tiene perfil de Supervisor'); }
+    if (rol !== 'comercial') sup = '';
+    const fila = [correo, String(nuevo.nombre || correo).trim(), ROLES_[rol], nuevo.activo === false ? 'No' : 'Sí', String(nuevo.telefono || '').trim(), String(nuevo.cargo || '').trim()];
+    if (ex) { h.getRange(ex.fila, 1, 1, fila.length).setValues([fila]); h.getRange(ex.fila, 9).setValue(sup); }
+    else h.appendRow(fila.concat([new Date(), '', sup]));
+    // si deja de ser supervisor, su equipo queda sin supervisor
+    if (ex && ex.rol === 'supervisor' && rol !== 'supervisor') todos.filter(x => x.supervisor === correo).forEach(x => h.getRange(x.fila, 9).setValue(''));
     tocarVersion_();
   } finally { lock.releaseLock(); }
   return { ok: true, usuarios: leerUsuarios_().map(publico_) };
@@ -241,7 +268,7 @@ function leerLeads_() {
     try { const o = JSON.parse(f[0]); o._fila = i + 2; return o; } catch (e) { return null; }
   }).filter(Boolean);
 }
-function puedeVer_(u, lead) { return u.rol === 'admin' || normCorreo_(lead.comercial) === u.correo; }
+function puedeVer_(u, lead, alc) { if (alc === undefined) alc = alcance_(u); return !alc || !!alc[normCorreo_(lead.comercial)]; }
 function limpio_(o) { const c = JSON.parse(JSON.stringify(o)); delete c._fila; return c; }
 
 // Une dos listas por id (nada de lo ya guardado se pierde si otro navegador manda una copia vieja)
@@ -262,22 +289,25 @@ function guardarLead_(u, lead) {
   let res;
   try {
     const todos = leerLeads_();
+    const alc = alcance_(u, usuarios);
     const previo = lead.id ? todos.filter(x => x.id === lead.id)[0] || null : null;
     const ahora = new Date().toISOString();
     if (previo) {
-      if (!puedeVer_(u, previo)) throw new Error('Este lead pertenece a otro comercial');
-      if (u.rol !== 'admin') lead.comercial = previo.comercial;     // solo el administrador reasigna
+      if (!puedeVer_(u, previo, alc)) throw new Error('Este lead pertenece a otro comercial');
+      if (u.rol === 'comercial') lead.comercial = previo.comercial;     // gerencia/admin reasignan a cualquiera; el supervisor, dentro de su equipo
       lead.historial = unir_(previo.historial, lead.historial);
       lead.seguimientos = unir_(previo.seguimientos, lead.seguimientos);
       lead.creado = previo.creado; lead.creadoPor = previo.creadoPor; lead.eventId = previo.eventId; lead.eventoInvitado = previo.eventoInvitado;
+      lead.venta = previo.venta;   // el cierre de venta solo se cambia con guardarVenta
     } else {
       lead.id = 'L-' + pad_(siguiente_('LEAD'), 4);
       lead.creado = ahora; lead.creadoPor = u.correo;
-      if (u.rol !== 'admin' || !lead.comercial) lead.comercial = u.correo;
+      if (u.rol === 'comercial' || !lead.comercial) lead.comercial = u.correo;
       lead.historial = lead.historial || [];
       if (!lead.historial.length) lead.historial.push({ id: 'H-' + Utilities.getUuid().slice(0, 8), fecha: ahora, de: '', a: lead.estado, nota: 'Lead creado', usuario: u.correo });
     }
     lead.comercial = normCorreo_(lead.comercial);
+    if (alc && !alc[lead.comercial]) throw new Error('Solo puedes asignar leads a comerciales de tu equipo');
     const com = usuarios.filter(x => x.correo === lead.comercial)[0];
     if (!com) throw new Error('El comercial asignado no está registrado: ' + lead.comercial);
     lead.nombreComercial = com.nombre;
@@ -285,7 +315,11 @@ function guardarLead_(u, lead) {
     if (previo && previo.estado !== lead.estado && !(lead.historial || []).some(x => x.a === lead.estado && String(x.fecha) >= String(previo.actualizado || ''))) {
       lead.historial.push({ id: 'H-' + Utilities.getUuid().slice(0, 8), fecha: ahora, de: previo.estado, a: lead.estado, nota: '', usuario: u.correo });
     }
-    if (GANADOS_.indexOf(lead.estado) >= 0) lead.fechaVenta = lead.fechaVenta || hoyISO_(); else delete lead.fechaVenta;
+    // la venta exige el cierre (valores) y la entrega exige además los 4 documentos
+    const cambiaEstado = !previo || previo.estado !== lead.estado;
+    if (cambiaEstado && GANADOS_.indexOf(lead.estado) >= 0 && !(lead.venta && Number(lead.venta.valorVenta) > 0)) throw new Error('Para pasar a ' + ESTADO_TXT_[lead.estado] + ' registra el cierre de venta (valor de venta, valor neto, membresía y documentos)');
+    if (cambiaEstado && lead.estado === 'entregado') { const f = docsFaltantes_(lead.venta); if (f.length) throw new Error('Para finalizar como Entregado faltan documentos: ' + f.join(', ')); }
+    if (GANADOS_.indexOf(lead.estado) >= 0) lead.fechaVenta = (lead.venta && lead.venta.fecha) || lead.fechaVenta || hoyISO_(); else delete lead.fechaVenta;
     if (FINALES_.indexOf(lead.estado) >= 0) lead.fechaCierre = lead.fechaCierre || hoyISO_(); else delete lead.fechaCierre;
     lead.actualizado = ahora; lead.actualizadoPor = u.correo;
     lead.nCotizaciones = leerCotizaciones_().filter(c => c.leadId === lead.id).length;
@@ -484,7 +518,7 @@ function escribirCotizacion_(c, fila) {
 function cotAccesible_(u, id) {
   const c = leerCotizaciones_().filter(x => x.id === id)[0];
   if (!c) throw new Error('No existe la cotización ' + id);
-  if (u.rol !== 'admin' && normCorreo_(c.comercial) !== u.correo) throw new Error('Esta cotización pertenece a otro comercial');
+  if (!puedeVer_(u, { comercial: c.comercial })) throw new Error('Esta cotización pertenece a otro comercial');
   return c;
 }
 function obtenerArchivo_(u, id) {
@@ -523,16 +557,112 @@ function enviarCotizacion_(u, p) {
   return { ok: true, cotizacion: limpio_(c), lead: lead ? limpio_(lead) : null };
 }
 
+// ===================== CIERRE DE VENTA =====================
+// Valor real de venta vs. cotización, membresía, meses de administración cubiertos por el comercial,
+// valor neto del vehículo (rentabilidad real) y documentos: factura, homologación, aduana y contrato.
+const DOCS_VENTA_ = { factura: 'Factura', homologacion: 'Ficha de homologación', aduana: 'Certificado de aduana', contrato: 'Contrato de membresía' };
+function docsFaltantes_(v) { return Object.keys(DOCS_VENTA_).filter(k => !(v && v.documentos && v.documentos[k] && v.documentos[k].fileId)).map(k => DOCS_VENTA_[k]); }
+function calcVenta_(v) {
+  const n = x => Number(x) || 0;
+  const venta = n(v.valorVenta), neto = n(v.valorNeto), cot = n(v.valorCotizado), memb = n(v.membresia), costoAdm = n(v.mesesAdmin) * n(v.valorMesAdmin);
+  const r = { diferencia: cot ? venta - cot : null, pctDiferencia: cot ? (venta - cot) / cot : null, comparacion: !cot ? 'Sin cotización' : venta === cot ? 'Igual a la cotización' : venta < cot ? 'Por debajo de la cotización' : 'Por encima de la cotización',
+    utilidadVehiculo: venta - neto, margenVenta: venta ? (venta - neto) / venta : null, margenCosto: neto ? (venta - neto) / neto : null, costoAdmin: costoAdm };
+  r.utilidadTotal = r.utilidadVehiculo + memb - costoAdm;
+  r.margenTotal = venta + memb ? r.utilidadTotal / (venta + memb) : null;
+  return r;
+}
+const ENC_VENTAS = ['# Lead', 'Fecha venta', 'Prospecto', 'Comercial', 'Marca', 'Referencia', 'N° factura', 'Cotización', 'Valor cotizado', 'Valor venta real', 'Diferencia vs cotización', '% diferencia', 'Comparación',
+  'Valor neto vehículo', 'Utilidad vehículo', '% margen sobre venta', '% sobre valor neto', 'Membresía', 'Meses administración (comercial)', 'Valor mes administración', 'Costo administración', 'Utilidad total', '% margen total',
+  'Factura', 'Ficha homologación', 'Certificado aduana', 'Contrato membresía', 'Documentos faltantes', 'Actualizado'];
+function escribirVenta_(l) {
+  const h = hoja_('Ventas', ENC_VENTAS), v = l.venta, c = calcVenta_(v), d = v.documentos || {};
+  const link = k => d[k] && d[k].url ? d[k].url : '';
+  const fila = [l.id, v.fecha || '', l.prospecto, l.nombreComercial || l.comercial, l.marca || '', l.referencia || '', v.factura || '', v.cotizacionId || '', Number(v.valorCotizado) || '', Number(v.valorVenta) || 0,
+    c.diferencia === null ? '' : c.diferencia, c.pctDiferencia === null ? '' : c.pctDiferencia, c.comparacion, Number(v.valorNeto) || 0, c.utilidadVehiculo, c.margenVenta === null ? '' : c.margenVenta, c.margenCosto === null ? '' : c.margenCosto,
+    Number(v.membresia) || 0, Number(v.mesesAdmin) || 0, Number(v.valorMesAdmin) || 0, c.costoAdmin, c.utilidadTotal, c.margenTotal === null ? '' : c.margenTotal,
+    link('factura'), link('homologacion'), link('aduana'), link('contrato'), docsFaltantes_(v).join(', '), new Date()];
+  const n = h.getLastRow() - 1, ids = n > 0 ? h.getRange(2, 1, n, 1).getValues().map(f => String(f[0])) : [];
+  const i = ids.indexOf(l.id), r = i >= 0 ? i + 2 : h.getLastRow() + 1;
+  h.getRange(r, 1, 1, fila.length).setValues([fila]);
+  try { h.getRange(r, 9, 1, 3).setNumberFormat('$#,##0'); h.getRange(r, 12).setNumberFormat('0.0%'); h.getRange(r, 14, 1, 2).setNumberFormat('$#,##0'); h.getRange(r, 16, 1, 2).setNumberFormat('0.0%');
+    h.getRange(r, 18).setNumberFormat('$#,##0'); h.getRange(r, 20, 1, 3).setNumberFormat('$#,##0'); h.getRange(r, 23).setNumberFormat('0.0%'); } catch (e) {}
+}
+/** Registra o corrige el cierre de venta; opcionalmente cambia el estado (facturado / entregado). Los archivos se suben aparte. */
+function guardarVenta_(u, p) {
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    const usuarios = leerUsuarios_(), alc = alcance_(u, usuarios);
+    const l = leerLeads_().filter(x => x.id === p.leadId)[0];
+    if (!l) throw new Error('No existe el lead ' + p.leadId);
+    if (!puedeVer_(u, l, alc)) throw new Error('Este lead pertenece a otro comercial');
+    const e = p.venta || {}, n = x => Math.max(0, Number(x) || 0);
+    if (!(n(e.valorVenta) > 0)) throw new Error('Indica el valor real de la venta');
+    if (!(n(e.valorNeto) > 0)) throw new Error('Indica el valor neto del vehículo');
+    const previo = JSON.parse(JSON.stringify(l)), ahora = new Date().toISOString(), ant = l.venta || {};
+    const cot = e.cotizacionId ? leerCotizaciones_().filter(c => c.id === e.cotizacionId && c.leadId === l.id)[0] : null;
+    l.venta = { fecha: String(e.fecha || hoyISO_()).slice(0, 10), factura: String(e.factura || '').trim(), cotizacionId: cot ? cot.id : '', valorCotizado: cot ? Number(cot.total) || 0 : n(e.valorCotizado),
+      valorVenta: n(e.valorVenta), valorNeto: n(e.valorNeto), membresia: n(e.membresia), mesesAdmin: n(e.mesesAdmin), valorMesAdmin: n(e.valorMesAdmin), observaciones: String(e.observaciones || '').trim(),
+      documentos: ant.documentos || {}, registradoPor: ant.registradoPor || u.correo, registrado: ant.registrado || ahora, actualizado: ahora, actualizadoPor: u.correo };
+    l.venta.calculo = calcVenta_(l.venta);
+    if (cot && cot.estado !== 'aceptada') { cot.estado = 'aceptada'; cot.actualizado = ahora; escribirCotizacion_(cot, cot._fila); }
+    const nuevo = p.estado && GANADOS_.indexOf(p.estado) >= 0 ? p.estado : null;
+    if (nuevo === 'entregado') { const f = docsFaltantes_(l.venta); if (f.length) throw new Error('Para finalizar como Entregado faltan documentos: ' + f.join(', ')); }
+    if (nuevo && nuevo !== l.estado) {
+      const c = l.venta.calculo;
+      l.historial = (l.historial || []).concat([{ id: 'H-' + Utilities.getUuid().slice(0, 8), fecha: ahora, de: l.estado, a: nuevo, usuario: u.correo,
+        nota: (String(p.nota || '').trim() ? String(p.nota).trim() + ' · ' : '') + 'Venta ' + cop_(l.venta.valorVenta) + ' (' + c.comparacion.toLowerCase() + (c.diferencia ? ' ' + cop_(c.diferencia) : '') + ') · membresía ' + cop_(l.venta.membresia) }]);
+      l.estado = nuevo;
+    }
+    if (GANADOS_.indexOf(l.estado) >= 0) l.fechaVenta = l.venta.fecha;
+    if (FINALES_.indexOf(l.estado) >= 0) l.fechaCierre = l.fechaCierre || hoyISO_();
+    l.actualizado = ahora; l.actualizadoPor = u.correo;
+    try { sincronizarEventoLead_(l, previo); } catch (err) { console.warn('Calendario ' + l.id, err); }
+    escribirLead_(l, l._fila); escribirVenta_(l); registrarBitacora_(l, previo);
+    tocarVersion_();
+    return { ok: true, lead: limpio_(l) };
+  } finally { lock.releaseLock(); }
+}
+function subirDocumentoVenta_(u, p) {
+  if (!DOCS_VENTA_[p.tipo]) throw new Error('Tipo de documento inválido');
+  const a = p.archivo || {};
+  if (!a.base64) throw new Error('No llegó el archivo');
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    const l = leerLeads_().filter(x => x.id === p.leadId)[0];
+    if (!l) throw new Error('No existe el lead ' + p.leadId);
+    if (!puedeVer_(u, l)) throw new Error('Este lead pertenece a otro comercial');
+    if (!l.venta) throw new Error('Primero registra el cierre de venta');
+    const carpeta = subcarpeta_(subcarpeta_(carpetaCotizaciones_(), nombreArchivo_(l.id + ' - ' + l.prospecto)), 'Documentos de venta');
+    const ext = (String(a.nombre || '').match(/\.[a-z0-9]{2,5}$/i) || [''])[0];
+    const f = carpeta.createFile(Utilities.newBlob(Utilities.base64Decode(a.base64), a.mime || 'application/octet-stream', nombreArchivo_(l.id + ' - ' + DOCS_VENTA_[p.tipo] + ' - ' + l.prospecto) + ext));
+    const docs = l.venta.documentos = l.venta.documentos || {};
+    if (docs[p.tipo] && docs[p.tipo].fileId) { try { DriveApp.getFileById(docs[p.tipo].fileId).setTrashed(true); } catch (e) {} }
+    docs[p.tipo] = { fileId: f.getId(), url: f.getUrl(), nombre: a.nombre || f.getName(), mime: a.mime || '', subido: new Date().toISOString(), usuario: u.correo };
+    l.actualizado = new Date().toISOString();
+    escribirLead_(l, l._fila); escribirVenta_(l); tocarVersion_();
+    return { ok: true, lead: limpio_(l) };
+  } finally { lock.releaseLock(); }
+}
+function obtenerDocumento_(u, leadId, tipo) {
+  const l = leerLeads_().filter(x => x.id === leadId)[0];
+  if (!l || !puedeVer_(u, l)) throw new Error('No tienes acceso a este lead');
+  const d = l.venta && l.venta.documentos && l.venta.documentos[tipo];
+  if (!d || !d.fileId) throw new Error('Documento no cargado');
+  const b = DriveApp.getFileById(d.fileId).getBlob();
+  return { ok: true, nombre: d.nombre || b.getName(), mime: b.getContentType(), base64: Utilities.base64Encode(b.getBytes()) };
+}
+
 // ===================== LECTURA PARA LA APP =====================
 function obtenerDatos_(u, version) {
   const v = versionActual_();
   if (version && version === v) return { sinCambios: true, version: v };
-  const leads = leerLeads_().filter(l => puedeVer_(u, l)).map(limpio_);
+  const usuarios = leerUsuarios_(), alc = alcance_(u, usuarios);
+  const leads = leerLeads_().filter(l => puedeVer_(u, l, alc)).map(limpio_);
   const ids = {}; leads.forEach(l => ids[l.id] = true);
   const cots = leerCotizaciones_().filter(c => ids[c.leadId]).map(limpio_);
-  return { version: v, usuario: publico_(u), usuarios: leerUsuarios_().map(publico_), leads: leads, cotizaciones: cots,
+  return { version: v, usuario: publico_(u), usuarios: usuarios.map(publico_), leads: leads, cotizaciones: cots,
     empresa: CONFIG.EMPRESA, validezCotizacion: CONFIG.VALIDEZ_COTIZACION_DIAS, calendario: CONFIG.CALENDARIO_NOMBRE || 'principal',
-    hoja: u.rol === 'admin' ? libro_().getUrl() : '', carpeta: u.rol === 'admin' ? (PropertiesService.getScriptProperties().getProperty('CARPETA_COT_URL') || '') : '' };
+    hoja: verTodo_(u) ? libro_().getUrl() : '', carpeta: verTodo_(u) ? (PropertiesService.getScriptProperties().getProperty('CARPETA_COT_URL') || '') : '' };
 }
 
 // ===================== INFORMES POR CORREO =====================
@@ -578,38 +708,78 @@ function htmlAgenda_(u, leads) {
       tabla_(['# Lead', 'Prospecto', 'Teléfono', 'Vehículo', 'Estado'], sinFecha.map(l => ['<b>' + esc_(l.id) + '</b>' + enlaceApp_(l.id), esc_(l.prospecto), esc_(l.telefono), esc_([l.marca, l.referencia].filter(String).join(' ')), esc_(ESTADO_TXT_[l.estado])])) : '') +
     '<p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:24px">Enviado automáticamente — ' + esc_(CONFIG.EMPRESA.nombre) + ' · Seguimiento comercial</p></div>';
 }
-function htmlResumen_(leads, cots, usuarios) {
-  const hoy = hoyISO_(), mes = hoy.slice(0, 7), ayer = Utilities.formatDate(new Date(Date.now() - 86400000), CONFIG.ZONA, 'yyyy-MM-dd');
-  const activos = leads.filter(esActivo_);
-  const vencidos = activos.filter(l => l.fechaSeguimiento && l.fechaSeguimiento < hoy);
-  const ventasMes = leads.filter(l => GANADOS_.indexOf(l.estado) >= 0 && String(l.fechaVenta || '').slice(0, 7) === mes);
-  const cotMes = cots.filter(c => String(c.fecha).slice(0, 7) === mes);
-  const nuevosMes = leads.filter(l => String(l.fechaContacto || l.creado).slice(0, 7) === mes);
-  const limite = Date.now() - CONFIG.DIAS_SIN_GESTION_ALERTA * 86400000;
-  const ultimaAct = l => Math.max.apply(null, [new Date(l.creado || 0).getTime()].concat((l.seguimientos || []).map(s => new Date(s.fecha).getTime())));
-  const sinGestion = activos.filter(l => ultimaAct(l) < limite);
-  const porCom = usuarios.filter(x => x.activo).map(x => {
-    const mios = leads.filter(l => l.comercial === x.correo);
-    const gAyer = mios.reduce((s, l) => s + (l.seguimientos || []).filter(g => String(g.fecha).slice(0, 10) === ayer || String(g.fecha).slice(0, 10) === hoy).length, 0);
-    return [esc_(x.nombre), mios.filter(l => String(l.fechaContacto || l.creado).slice(0, 7) === mes).length, mios.filter(esActivo_).length,
-      mios.filter(l => esActivo_(l) && l.fechaSeguimiento && l.fechaSeguimiento < hoy).length, gAyer,
-      cots.filter(c => c.comercial === x.correo && String(c.fecha).slice(0, 7) === mes).length,
-      mios.filter(l => GANADOS_.indexOf(l.estado) >= 0 && String(l.fechaVenta || '').slice(0, 7) === mes).length];
-  }).filter(f => f.slice(1).some(n => n > 0));
-  const embudo = ESTADOS_.map(e => [esc_(e[1]), leads.filter(l => l.estado === e[0]).length]).filter(f => f[1] > 0);
-  return '<div style="' + S_.wrap + '">' + logoCorreo_() + '<h1 style="' + S_.h1 + '">Resumen comercial diario</h1>' +
-    '<p style="' + S_.sub + '">' + esc_(CONFIG.EMPRESA.nombre) + ' — ' + fechaLarga_() + '</p>' +
-    kpis_([[nuevosMes.length, 'Leads nuevos del mes', '#eff6ff', '#1d4ed8'], [activos.length, 'Leads activos', '#f0fdf4', '#15803d'],
-      [vencidos.length, 'Seguimientos vencidos', '#fef2f2', '#b91c1c'], [cotMes.length + ' · ' + cop_(cotMes.reduce((s, c) => s + (Number(c.total) || 0), 0)), 'Cotizaciones del mes', '#fffbeb', '#92400e'],
-      [ventasMes.length, 'Ventas del mes', '#ecfdf5', '#047857']]) +
+// ---------- Informe "día vencido": gestiones del periodo anterior ----------
+// Por defecto el día anterior; el lunes cubre sábado y domingo.
+function periodoInforme_() {
+  const hoy = fechaHora_(hoyISO_()), dow = Number(Utilities.formatDate(new Date(), CONFIG.ZONA, 'u'));
+  const f = d => Utilities.formatDate(d, CONFIG.ZONA, 'yyyy-MM-dd');
+  const hasta = new Date(hoy.getTime() - 86400000);
+  const desde = dow === 1 ? new Date(hoy.getTime() - 2 * 86400000) : hasta;
+  return { desde: f(desde), hasta: f(hasta) };
+}
+const fechaLoc_ = iso => iso ? Utilities.formatDate(new Date(iso), CONFIG.ZONA, 'yyyy-MM-dd') : '';
+function htmlInformeDia_(leads, cots, usuarios, per, titulo) {
+  const enP = iso => { const d = String(iso || '').length > 10 ? fechaLoc_(iso) : String(iso || ''); return d >= per.desde && d <= per.hasta; };
+  const hoy = hoyISO_(), nom = c => (usuarios.filter(x => x.correo === c)[0] || {}).nombre || c;
+  const gest = [], cambios = [];
+  leads.forEach(l => {
+    (l.seguimientos || []).forEach(g => { if (enP(g.fecha) && g.medio !== 'Cotización') gest.push({ l: l, g: g }); });
+    (l.historial || []).forEach(h => { if (enP(h.fecha) && h.de) cambios.push({ l: l, h: h }); });
+  });
+  gest.sort((a, b) => String(a.g.fecha).localeCompare(String(b.g.fecha)));
+  const nuevos = leads.filter(l => enP(l.fechaContacto));
+  const cotP = cots.filter(c => enP(c.fecha));
+  const ventas = leads.filter(l => GANADOS_.indexOf(l.estado) >= 0 && enP(l.fechaVenta));
+  const perdidos = leads.filter(l => l.estado === 'perdido' && enP(l.fechaCierre));
+  const activos = leads.filter(esActivo_), vencidos = activos.filter(l => l.fechaSeguimiento && l.fechaSeguimiento < hoy);
+  const coms = {}; leads.forEach(l => coms[l.comercial] = true); gest.forEach(x => coms[x.g.usuario] = true);
+  const porCom = Object.keys(coms).filter(Boolean).map(c => {
+    const g = gest.filter(x => x.l.comercial === c);
+    return [esc_(nom(c)), g.length, g.filter(x => /no contest|errado/i.test(x.g.resultado)).length, nuevos.filter(l => l.comercial === c).length,
+      cotP.filter(x => x.comercial === c).length, ventas.filter(l => l.comercial === c).length, perdidos.filter(l => l.comercial === c).length,
+      activos.filter(l => l.comercial === c).length, vencidos.filter(l => l.comercial === c).length];
+  }).filter(f => f.slice(1).some(n => n > 0)).sort((a, b) => b[1] - a[1]);
+  const porRes = {}; gest.forEach(x => porRes[x.g.resultado] = (porRes[x.g.resultado] || 0) + 1);
+  const hora = iso => Utilities.formatDate(new Date(iso), CONFIG.ZONA, per.desde === per.hasta ? 'HH:mm' : 'dd/MM HH:mm');
+  const txtPer = per.desde === per.hasta ? fmt_(per.desde) : fmt_(per.desde) + ' al ' + fmt_(per.hasta);
+  return '<div style="' + S_.wrap + '">' + logoCorreo_() + '<h1 style="' + S_.h1 + '">' + esc_(titulo || 'Informe de gestiones comerciales') + '</h1>' +
+    '<p style="' + S_.sub + '">' + esc_(CONFIG.EMPRESA.nombre) + ' — gestiones del ' + txtPer + ' · enviado el ' + fechaLarga_() + '</p>' +
+    kpis_([[gest.length, 'Gestiones', '#e9eef8', '#2c4887'], [nuevos.length, 'Leads nuevos', '#eff6ff', '#1d4ed8'],
+      [cotP.length + ' · ' + cop_(cotP.reduce((s, c) => s + (Number(c.total) || 0), 0)), 'Cotizaciones', '#fffbeb', '#92400e'],
+      [ventas.length, 'Ventas', '#ecfdf5', '#047857'], [perdidos.length, 'Perdidos', '#fef2f2', '#b91c1c']]) +
     '<h2 style="' + S_.h2 + '">Por comercial</h2>' +
-    (porCom.length ? tabla_(['Comercial', 'Nuevos mes', 'Activos', 'Vencidos', 'Gestiones ayer/hoy', 'Cotizaciones mes', 'Ventas mes'], porCom, [1, 2, 3, 4, 5, 6]) : '<p style="' + S_.sub + '">Sin actividad</p>') +
-    '<h2 style="' + S_.h2 + '">Embudo actual</h2>' + tabla_(['Estado', 'Leads'], embudo, [1]) +
-    '<h2 style="' + S_.h2 + '">Seguimientos vencidos (' + vencidos.length + ')</h2>' +
+    (porCom.length ? tabla_(['Comercial', 'Gestiones', 'Sin contacto', 'Leads nuevos', 'Cotizaciones', 'Ventas', 'Perdidos', 'Activos hoy', 'Vencidos hoy'], porCom, [1, 2, 3, 4, 5, 6, 7, 8]) : '<p style="' + S_.sub + '">Sin actividad en el periodo</p>') +
+    '<h2 style="' + S_.h2 + '">Resultados de las gestiones</h2><p style="font-size:12px">' + (Object.keys(porRes).sort((a, b) => porRes[b] - porRes[a]).map(k => esc_(k) + ': <b>' + porRes[k] + '</b>').join(' · ') || 'Ninguna gestión registrada') + '</p>' +
+    '<h2 style="' + S_.h2 + '">Detalle de gestiones (' + gest.length + ')</h2>' +
+    (gest.length ? tabla_(['Hora', 'Comercial', '# Lead', 'Prospecto', 'Vehículo', 'Medio', 'Resultado', 'Detalle', 'Próximo'], gest.map(x => [hora(x.g.fecha), esc_(nom(x.l.comercial)), '<b>' + esc_(x.l.id) + '</b>' + enlaceApp_(x.l.id), esc_(x.l.prospecto),
+      esc_([x.l.marca, x.l.referencia].filter(String).join(' ')), esc_(x.g.medio || ''), esc_(x.g.resultado || ''), esc_(String(x.g.nota || '').slice(0, 90)), x.g.proximaFecha ? fmt_(x.g.proximaFecha) : '—'])) : '<p style="' + S_.sub + '">Ninguna</p>') +
+    (cambios.length ? '<h2 style="' + S_.h2 + '">Cambios de estado (' + cambios.length + ')</h2>' + tabla_(['Hora', 'Comercial', '# Lead', 'Prospecto', 'Cambio', 'Nota'], cambios.map(x => [hora(x.h.fecha), esc_(nom(x.l.comercial)), '<b>' + esc_(x.l.id) + '</b>', esc_(x.l.prospecto),
+      esc_((ESTADO_TXT_[x.h.de] || x.h.de) + ' → ' + (ESTADO_TXT_[x.h.a] || x.h.a)), esc_(String(x.h.nota || '').slice(0, 80))])) : '') +
+    (ventas.length ? '<h2 style="' + S_.h2 + '">Ventas (' + ventas.length + ')</h2>' + tabla_(['Comercial', '# Lead', 'Cliente', 'Vehículo', 'Cotizado', 'Venta real', 'vs cotización', 'Utilidad', '% margen', 'Membresía', 'Meses adm.', 'Docs'],
+      ventas.map(l => { const v = l.venta || {}, c = v.calculo || calcVenta_(v), f = docsFaltantes_(v); return [esc_(nom(l.comercial)), '<b>' + esc_(l.id) + '</b>', esc_(l.prospecto), esc_([l.marca, l.referencia].filter(String).join(' ')),
+        v.valorCotizado ? cop_(v.valorCotizado) : '—', '<b>' + cop_(v.valorVenta) + '</b>', c.diferencia === null ? '—' : c.diferencia < 0 ? '<span style="color:#b91c1c">' + cop_(c.diferencia) + ' (' + (c.pctDiferencia * 100).toFixed(1) + '%)</span>' : c.diferencia === 0 ? 'Igual' : '+' + cop_(c.diferencia),
+        cop_(c.utilidadVehiculo), c.margenVenta === null ? '—' : (c.margenVenta * 100).toFixed(1) + '%', cop_(v.membresia), v.mesesAdmin || 0, f.length ? '<span style="color:#b91c1c">Faltan ' + f.length + '</span>' : '✅']; }), [4, 5, 6, 7, 8, 9, 10]) : '') +
+    (cotP.length ? '<h2 style="' + S_.h2 + '">Cotizaciones (' + cotP.length + ')</h2>' + tabla_(['N°', 'Comercial', 'Cliente', 'Vehículo', 'Pago', 'Total'], cotP.map(c => ['<b>' + esc_(c.id) + '</b>', esc_(nom(c.comercial)), esc_((c.cliente || {}).nombre || ''),
+      esc_([c.vehiculo && c.vehiculo.marca, c.vehiculo && c.vehiculo.referencia].filter(String).join(' ')), esc_(c.formaPago || ''), cop_(c.total)]), [5]) : '') +
+    '<h2 style="' + S_.h2 + '">Seguimientos vencidos al día de hoy (' + vencidos.length + ')</h2>' +
     (vencidos.length ? tabla_(['Fecha', '# Lead', 'Prospecto', 'Teléfono', 'Vehículo', 'Estado', 'Última gestión'], vencidos.slice(0, 80).map(l => filaAgenda_(l, hoy))) : '<p style="' + S_.sub + '">Ninguno</p>') +
-    '<h2 style="' + S_.h2 + '">Leads activos sin gestión en ' + CONFIG.DIAS_SIN_GESTION_ALERTA + ' días (' + sinGestion.length + ')</h2>' +
-    (sinGestion.length ? tabla_(['# Lead', 'Prospecto', 'Comercial', 'Vehículo', 'Estado'], sinGestion.slice(0, 80).map(l => ['<b>' + esc_(l.id) + '</b>', esc_(l.prospecto), esc_(l.nombreComercial || l.comercial), esc_([l.marca, l.referencia].filter(String).join(' ')), esc_(ESTADO_TXT_[l.estado])])) : '<p style="' + S_.sub + '">Ninguno</p>') +
-    '<p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:24px">Enviado automáticamente — Seguimiento comercial · Confidencial</p></div>';
+    '<p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:24px">Informe automático día vencido — Seguimiento comercial · Confidencial</p></div>';
+}
+function csvGestiones_(leads, usuarios, per) {
+  const nom = c => (usuarios.filter(x => x.correo === c)[0] || {}).nombre || c;
+  const filas = [['Fecha', 'Hora', 'Comercial', '# Lead', 'Prospecto', 'Teléfono', 'Marca', 'Referencia', 'Estado actual', 'Medio', 'Resultado', 'Detalle', 'Próximo seguimiento']];
+  leads.forEach(l => (l.seguimientos || []).forEach(g => { const d = fechaLoc_(g.fecha); if (d >= per.desde && d <= per.hasta) filas.push([d, Utilities.formatDate(new Date(g.fecha), CONFIG.ZONA, 'HH:mm'), nom(l.comercial), l.id, l.prospecto, l.telefono, l.marca || '', l.referencia || '', ESTADO_TXT_[l.estado] || l.estado, g.medio || '', g.resultado || '', g.nota || '', g.proximaFecha || '']); }));
+  const csv = filas.map(f => f.map(c => '"' + String(c === null || c === undefined ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+  return Utilities.newBlob('﻿' + csv, 'text/csv', 'gestiones_' + per.desde + (per.hasta !== per.desde ? '_a_' + per.hasta : '') + '.csv');
+}
+function enviarInformeDia_(para, cc, leads, cots, usuarios, per, titulo) {
+  const html = htmlInformeDia_(leads, cots, usuarios, per, titulo);
+  const n = leads.reduce((s, l) => s + (l.seguimientos || []).filter(g => { const d = fechaLoc_(g.fecha); return d >= per.desde && d <= per.hasta && g.medio !== 'Cotización'; }).length, 0);
+  const txtPer = per.desde === per.hasta ? fmt_(per.desde) : fmt_(per.desde) + ' al ' + fmt_(per.hasta);
+  MailApp.sendEmail(para, '[INFORME COMERCIAL] Gestiones del ' + txtPer + ' · ' + n + ' gestión(es)', 'Informe de gestiones comerciales del ' + txtPer + '.', {
+    htmlBody: html, name: CONFIG.NOMBRE_REMITENTE, cc: (cc || []).join(','),
+    attachments: [pdf_(html, 'Informe_comercial_' + per.hasta), csvGestiones_(leads, usuarios, per)] });
+  return n;
 }
 function pdf_(html, nombre) {
   return Utilities.newBlob('<html><head><meta charset="UTF-8"></head><body style="margin:24px">' + html + '</body></html>', 'text/html', nombre + '.html').getAs('application/pdf').setName(nombre + '.pdf');
@@ -621,34 +791,41 @@ function enviarAgenda_(u, leads) {
   MailApp.sendEmail(u.correo, '[AGENDA VENTAS] ' + n + ' seguimiento(s) pendientes · ' + fmt_(hoy), 'Tu agenda comercial de hoy.', { htmlBody: htmlAgenda_(u, mios), name: CONFIG.NOMBRE_REMITENTE });
   return n;
 }
-function enviarResumen_(para, leads, cots, usuarios) {
-  const html = htmlResumen_(leads, cots, usuarios);
-  MailApp.sendEmail(para, '[RESUMEN COMERCIAL] ' + fmt_(hoyISO_()), 'Resumen comercial diario.', { htmlBody: html, name: CONFIG.NOMBRE_REMITENTE, attachments: [pdf_(html, 'Resumen_comercial_' + hoyISO_())] });
-}
+/** Botón de la app: gerencia/admin y supervisores reciben el informe día vencido (su alcance); el comercial, su agenda. */
 function enviarInformeAhora_(u) {
-  const leads = leerLeads_().map(limpio_);
-  if (u.rol === 'admin') { enviarResumen_(u.correo, leads, leerCotizaciones_().map(limpio_), leerUsuarios_()); return { ok: true, tipo: 'resumen', para: u.correo }; }
-  return { ok: true, tipo: 'agenda', para: u.correo, pendientes: enviarAgenda_(u, leads) };
+  const usuarios = leerUsuarios_(), alc = alcance_(u, usuarios);
+  const leads = leerLeads_().filter(l => puedeVer_(u, l, alc)).map(limpio_);
+  if (u.rol === 'comercial') return { ok: true, tipo: 'agenda', para: u.correo, pendientes: enviarAgenda_(u, leads) };
+  const ids = {}; leads.forEach(l => ids[l.id] = true);
+  const per = periodoInforme_();
+  const n = enviarInformeDia_(u.correo, [], leads, leerCotizaciones_().map(limpio_).filter(c => ids[c.leadId]), usuarios, per, u.rol === 'supervisor' ? 'Informe de gestiones — equipo de ' + u.nombre : null);
+  return { ok: true, tipo: 'informe', para: u.correo, gestiones: n, desde: per.desde, hasta: per.hasta };
 }
-/** Lo ejecuta el disparador diario (HORA_AGENDA). */
+/**
+ * Lo ejecuta el disparador diario (HORA_AGENDA). Informe "día vencido" a CONFIG.CORREO_INFORME
+ * (lunes a sábado; el lunes trae sábado y domingo), a cada supervisor con su equipo, y la agenda del día a cada comercial.
+ */
 function informeDiarioAutomatico() {
-  if (Number(Utilities.formatDate(new Date(), CONFIG.ZONA, 'u')) === 7) return;   // domingo no
-  const leads = leerLeads_().map(limpio_), usuarios = leerUsuarios_().filter(x => x.activo), hoy = hoyISO_();
-  if (CONFIG.ENVIAR_AGENDA_COMERCIALES) usuarios.forEach(u => {
+  if (Number(Utilities.formatDate(new Date(), CONFIG.ZONA, 'u')) === 7) return;   // domingo no (el lunes llega sábado + domingo)
+  const leads = leerLeads_().map(limpio_), usuarios = leerUsuarios_(), activos = usuarios.filter(x => x.activo), hoy = hoyISO_();
+  const cots = leerCotizaciones_().map(limpio_), per = periodoInforme_();
+  if (CONFIG.CORREO_INFORME && leads.length) { try { enviarInformeDia_(CONFIG.CORREO_INFORME, CONFIG.CC_INFORME, leads, cots, usuarios, per); } catch (e) { console.error('Informe CEO', e); } }
+  if (CONFIG.INFORME_A_SUPERVISORES) activos.filter(u => u.rol === 'supervisor').forEach(u => {
+    try { const alc = alcance_(u, usuarios); const mis = leads.filter(l => alc[l.comercial]); if (!mis.length) return; const ids = {}; mis.forEach(l => ids[l.id] = true);
+      enviarInformeDia_(u.correo, [], mis, cots.filter(c => ids[c.leadId]), usuarios, per, 'Informe de gestiones — equipo de ' + u.nombre); }
+    catch (e) { console.warn('Informe supervisor ' + u.correo, e); }
+  });
+  if (CONFIG.ENVIAR_AGENDA_COMERCIALES) activos.forEach(u => {
     try { if (leads.some(l => l.comercial === u.correo && esActivo_(l) && (!l.fechaSeguimiento || l.fechaSeguimiento <= hoy))) enviarAgenda_(u, leads); }
     catch (e) { console.warn('Agenda ' + u.correo, e); }
   });
-  if (CONFIG.ENVIAR_RESUMEN_GERENCIA && leads.length) {
-    const cots = leerCotizaciones_().map(limpio_);
-    usuarios.filter(u => u.rol === 'admin').forEach(u => { try { enviarResumen_(u.correo, leads, cots, usuarios); } catch (e) { console.warn('Resumen ' + u.correo, e); } });
-  }
 }
 
 // ===================== DISPARADORES Y CONFIGURACIÓN =====================
 function asegurarDisparador_() {
   try {
     const props = PropertiesService.getScriptProperties();
-    const clave = 'DISPARADOR_V1_' + CONFIG.HORA_AGENDA;
+    const clave = 'DISPARADOR_V2_' + CONFIG.HORA_AGENDA;
     if (props.getProperty(clave) && ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'informeDiarioAutomatico')) return true;
     instalarDisparadores();
     props.setProperty(clave, new Date().toISOString());
@@ -669,7 +846,7 @@ function configurarTodo() {
   const info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
   if (info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) { console.warn('Faltan permisos: ' + info.getAuthorizationUrl()); ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); }
   const ss = libro_();
-  hoja_('Leads', ENC_LEADS); hoja_('Cotizaciones', ENC_COT); hoja_('Bitacora', ENC_BITACORA);
+  hoja_('Leads', ENC_LEADS); hoja_('Cotizaciones', ENC_COT); hoja_('Ventas', ENC_VENTAS); hoja_('Bitacora', ENC_BITACORA);
   const us = leerUsuarios_();
   console.log('Hoja: ' + ss.getUrl());
   console.log('Usuarios: ' + us.map(u => u.correo + ' (' + u.rol + ')').join(', '));
@@ -682,6 +859,11 @@ function configurarTodo() {
 function probarCorreos() {
   const yo = usuarioPorCorreo_(Session.getEffectiveUser().getEmail());
   console.log(JSON.stringify(enviarInformeAhora_(yo)));
+}
+/** Prueba manual: envía ya mismo el informe día vencido a CONFIG.CORREO_INFORME. */
+function probarInformeCEO() {
+  const per = periodoInforme_();
+  console.log(enviarInformeDia_(CONFIG.CORREO_INFORME, CONFIG.CC_INFORME, leerLeads_().map(limpio_), leerCotizaciones_().map(limpio_), leerUsuarios_(), per) + ' gestiones · ' + per.desde + ' a ' + per.hasta);
 }
 
 // ===================== UTILIDADES =====================

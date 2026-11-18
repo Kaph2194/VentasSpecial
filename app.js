@@ -8,8 +8,9 @@
 
 // URL del Web App (Apps Script implementado desde la cuenta dueña — ver VENTAS_SETUP.md).
 // Mientras esté vacía la app funciona en MODO DEMO: datos de ejemplo guardados en este navegador.
-const VENTAS_WEBAPP_URL = '';
-const MODO_DEMO = !/^https:\/\/script\.google(usercontent)?\.com\//.test(VENTAS_WEBAPP_URL);
+const VENTAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwgbdo6VV1pcxVM1iw_9nvvOmhDAG-NxsKIvRrD1Ojl-n-QpFO0D9lKxkOJVfwuL3Y/exec';
+// ?demo en la dirección abre el modo demo aunque haya backend (útil para capacitar)
+const MODO_DEMO = /[?&]demo\b/.test(location.search) || !/^https:\/\/script\.google(usercontent)?\.com\//.test(VENTAS_WEBAPP_URL);
 
 // Datos de la empresa para el encabezado de las cotizaciones (el backend los reemplaza con su CONFIG.EMPRESA)
 let EMPRESA = { nombre: 'Special Car', nit: '', direccion: '', ciudad: 'Bogotá D.C.', telefono: '', correo: '', web: '' };
@@ -48,7 +49,21 @@ const MARCAS = ['Chevrolet', 'Renault', 'Kia', 'Mazda', 'Toyota', 'Nissan', 'Hyu
 
 // ===== ESTADO DE LA APP =====
 const S = { token: null, usuario: null, usuarios: [], leads: [], cotizaciones: [], version: null, vista: 'leads', hoja: '', carpeta: '', ultimaSync: null };
-const esAdmin = () => S.usuario && S.usuario.rol === 'admin';
+// Perfiles: comercial (sus leads) · supervisor (su equipo) · gerencia y administrador (todo)
+const ROLES = { comercial: 'Comercial', supervisor: 'Supervisor', gerencia: 'Gerencia', admin: 'Administrador' };
+const ROL_CLS = { comercial: 'st-contactado', supervisor: 'st-prueba', gerencia: 'st-aprobado', admin: 'st-cita' };
+const rolActual = () => (S.usuario && S.usuario.rol) || 'comercial';
+const verTodo = () => ['admin', 'gerencia'].includes(rolActual());
+const esSupervisor = () => rolActual() === 'supervisor';
+const veEquipo = () => rolActual() !== 'comercial';          // ve leads de otros comerciales (columna y filtro "Comercial")
+const gestionaUsuarios = () => verTodo();
+const esAdmin = veEquipo;                                     // compatibilidad con el código anterior
+// Comerciales a los que el usuario puede asignar leads
+function asignables() {
+  if (verTodo()) return S.usuarios.filter(u => u.activo);
+  if (esSupervisor()) return S.usuarios.filter(u => u.activo && (u.correo === S.usuario.correo || u.supervisor === S.usuario.correo));
+  return S.usuarios.filter(u => u.correo === S.usuario.correo);
+}
 
 // ===== UTILIDADES =====
 const fmtCOP = n => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Math.round(Number(n) || 0));
@@ -163,10 +178,10 @@ function cerrarSesion(silencioso) {
 }
 function entrarApp() {
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  $('user-chip').innerHTML = `<b>${esc(S.usuario.nombre)}</b><small>${esc(S.usuario.correo)} · ${esAdmin() ? 'Administrador' : 'Comercial'}</small>`;
-  $('nav-usuarios').classList.toggle('hidden', !esAdmin());
+  $('user-chip').innerHTML = `<b>${esc(S.usuario.nombre)}</b><small>${esc(S.usuario.correo)} · ${ROLES[rolActual()]}${esSupervisor() ? ' · equipo de ' + S.usuarios.filter(u => u.supervisor === S.usuario.correo).length : ''}</small>`;
+  $('nav-usuarios').classList.toggle('hidden', !gestionaUsuarios());
   $('banner-demo').classList.toggle('hidden', !MODO_DEMO);
-  document.body.classList.toggle('es-admin', esAdmin());
+  document.body.classList.toggle('es-admin', veEquipo());
   irAVista(S.vista || 'leads');
   sincronizar(true).then(abrirDesdeHash);
 }
@@ -222,7 +237,7 @@ function upsertLead(l) { if (!l) return; const i = S.leads.findIndex(x => x.id =
 // ===== NAVEGACIÓN =====
 const VISTAS = ['leads', 'agenda', 'cotizaciones', 'reportes', 'usuarios'];
 function irAVista(v) {
-  if (v === 'usuarios' && !esAdmin()) v = 'leads';
+  if (v === 'usuarios' && !gestionaUsuarios()) v = 'leads';
   S.vista = v;
   VISTAS.forEach(x => { $('vista-' + x).classList.toggle('hidden', x !== v); $('nav-' + x).classList.toggle('active', x === v); });
   renderVista();
@@ -230,14 +245,14 @@ function irAVista(v) {
 function renderVista() {
   if (!S.usuario) return;
   ({ leads: renderLeads, agenda: renderAgenda, cotizaciones: renderCotizaciones, reportes: renderReportes, usuarios: renderUsuarios })[S.vista]();
-  const venc = S.leads.filter(l => esActivo(l) && l.fechaSeguimiento && diasR(l.fechaSeguimiento) <= 0 && (esAdmin() ? true : l.comercial === S.usuario.correo)).length;
+  const venc = S.leads.filter(l => esActivo(l) && l.fechaSeguimiento && diasR(l.fechaSeguimiento) <= 0 ).length;
   $('nav-agenda').querySelector('.tab-n').textContent = venc; $('nav-agenda').querySelector('.tab-n').classList.toggle('hidden', !venc);
 }
 function abrirDesdeHash() { const m = location.hash.match(/lead=([\w-]+)/); if (m && S.leads.some(l => l.id === m[1])) abrirFicha(m[1]); }
 
 // Listas que dependen de los datos (comerciales, marcas, referencias)
 function cargarFiltrosDinamicos() {
-  const coms = S.usuarios.filter(u => u.activo || S.leads.some(l => l.comercial === u.correo));
+  const coms = S.usuarios.filter(u => S.leads.some(l => l.comercial === u.correo) || (u.activo && asignables().includes(u)));
   ['lComercial', 'aComercial', 'cComercial', 'rComercial'].forEach(id => {
     const s = $(id); if (!s) return; const v = s.value;
     s.innerHTML = '<option value="">Todos los comerciales</option>' + coms.map(u => `<option value="${esc(u.correo)}">${esc(u.nombre)}</option>`).join(''); s.value = v;
@@ -262,35 +277,41 @@ function cerrarModal() {
   if (_renderPendiente) setTimeout(refrescarVista, 50); else renderVista();
 }
 
-// ===== USUARIOS (solo administrador) =====
+// ===== USUARIOS (gerencia y administrador) =====
 function renderUsuarios() {
-  const tb = $('tbodyUsuarios');
-  tb.innerHTML = S.usuarios.slice().sort((a, b) => (b.activo - a.activo) || a.nombre.localeCompare(b.nombre)).map(u => {
-    const mios = S.leads.filter(l => l.comercial === u.correo);
-    return `<tr class="${u.activo ? '' : 'fila-inactiva'}"><td>${esc(u.nombre)}</td><td>${esc(u.correo)}</td><td>${u.rol === 'admin' ? '<span class="st st-cita">Administrador</span>' : '<span class="st st-contactado">Comercial</span>'}</td>
+  const orden = { admin: 0, gerencia: 1, supervisor: 2, comercial: 3 };
+  $('tbodyUsuarios').innerHTML = S.usuarios.slice().sort((a, b) => (b.activo - a.activo) || (orden[a.rol] - orden[b.rol]) || a.nombre.localeCompare(b.nombre)).map(u => {
+    const mios = S.leads.filter(l => l.comercial === u.correo), equipo = S.usuarios.filter(x => x.supervisor === u.correo);
+    return `<tr class="${u.activo ? '' : 'fila-inactiva'}"><td><b>${esc(u.nombre)}</b></td><td>${esc(u.correo)}</td><td><span class="st ${ROL_CLS[u.rol]}">${ROLES[u.rol]}</span></td>
+      <td>${u.rol === 'supervisor' ? `<span class="td-sub2">Equipo: ${equipo.length ? equipo.map(x => esc(x.nombre)).join(', ') : '<i>sin asignar</i>'}</span>` : u.rol === 'comercial' ? (u.supervisor ? esc(nombreUsuario(u.supervisor)) : '<span class="cell-n">Sin supervisor</span>') : '<span class="cell-n">Ve todo</span>'}</td>
       <td>${esc(u.telefono || '—')}</td><td>${esc(u.cargo || '—')}</td><td>${u.activo ? '<span class="txt-g">Activo</span>' : '<span class="txt-r">Inactivo</span>'}</td>
-      <td style="text-align:center">${mios.filter(esActivo).length}</td><td class="td-acc"><button class="btn-notif" onclick="abrirUsuario('${esc(u.correo)}')">✏️ Editar</button></td></tr>`;
-  }).join('') || '<tr><td colspan="8" class="empty-msg">Sin usuarios</td></tr>';
+      <td style="text-align:center">${mios.filter(esActivo).length}</td><td class="td-acc">${u.rol === 'admin' && rolActual() !== 'admin' ? '' : `<button class="btn-notif" onclick="abrirUsuario('${esc(u.correo)}')">✏️ Editar</button>`}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="empty-msg">Sin usuarios</td></tr>';
 }
 function abrirUsuario(correo) {
-  const u = S.usuarios.find(x => x.correo === correo) || { correo: '', nombre: '', rol: 'comercial', activo: true, telefono: '', cargo: 'Asesor comercial' };
+  const u = S.usuarios.find(x => x.correo === correo) || { correo: '', nombre: '', rol: 'comercial', activo: true, telefono: '', cargo: 'Asesor comercial', supervisor: '' };
+  const sups = S.usuarios.filter(x => x.rol === 'supervisor' && x.activo && x.correo !== u.correo);
+  const roles = Object.entries(ROLES).filter(([k]) => k !== 'admin' || rolActual() === 'admin');
+  const desc = { comercial: 've y gestiona solo sus leads', supervisor: 've los leads y estadísticas de su equipo', gerencia: 've todo, asigna supervisores y gestiona usuarios', admin: 've todo y gestiona usuarios y administradores' };
   abrirModal(correo ? 'Editar usuario' : 'Nuevo usuario', `
     <div class="form-grid">
       <div class="form-group"><label>Correo personal *</label><input id="us_correo" type="email" value="${esc(u.correo)}" ${correo ? 'disabled' : ''} placeholder="nombre@gmail.com"/></div>
       <div class="form-group"><label>Nombre completo *</label><input id="us_nombre" value="${esc(u.nombre)}"/></div>
+      <div class="form-group"><label>Perfil</label><select id="us_rol" onchange="$('us_sup_box').classList.toggle('hidden',this.value!=='comercial')">${roles.map(([k, t]) => `<option value="${k}" ${u.rol === k ? 'selected' : ''}>${t} — ${desc[k]}</option>`).join('')}</select></div>
+      <div class="form-group ${u.rol === 'comercial' ? '' : 'hidden'}" id="us_sup_box"><label>Supervisor a cargo</label><select id="us_sup"><option value="">— Sin supervisor —</option>${sups.map(x => `<option value="${esc(x.correo)}" ${u.supervisor === x.correo ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select></div>
       <div class="form-group"><label>Teléfono (sale en las cotizaciones)</label><input id="us_tel" value="${esc(u.telefono)}"/></div>
       <div class="form-group"><label>Cargo</label><input id="us_cargo" value="${esc(u.cargo)}"/></div>
-      <div class="form-group"><label>Rol</label><select id="us_rol"><option value="comercial">Comercial (ve solo sus leads)</option><option value="admin" ${u.rol === 'admin' ? 'selected' : ''}>Administrador (ve todo, asigna y gestiona usuarios)</option></select></div>
       <div class="form-group"><label>Estado</label><select id="us_activo"><option value="1">Activo</option><option value="0" ${u.activo ? '' : 'selected'}>Inactivo (no puede ingresar)</option></select></div>
     </div>
-    <p class="nota-cal">El comercial entra a la app con este correo: recibe un código de 6 dígitos en ese buzón. Los seguimientos de sus leads le llegan como invitación a ese mismo calendario.</p>`,
+    <p class="nota-cal">Cada persona entra con este correo: recibe un código de 6 dígitos en ese buzón. Los comerciales se asignan a un <b>supervisor</b>, que verá los leads, la agenda y las estadísticas de su equipo.${sups.length ? '' : ' Aún no hay usuarios con perfil Supervisor: créalos primero para poder asignarles comerciales.'}</p>`,
     `<button class="btn btn-primary-dark" onclick="guardarUsuario(this)">💾 Guardar</button>`, 'modal-md');
 }
 async function guardarUsuario(btn) {
-  const usuario = { correo: $('us_correo').value.trim().toLowerCase(), nombre: $('us_nombre').value.trim(), telefono: $('us_tel').value.trim(), cargo: $('us_cargo').value.trim(), rol: $('us_rol').value, activo: $('us_activo').value === '1' };
+  const usuario = { correo: $('us_correo').value.trim().toLowerCase(), nombre: $('us_nombre').value.trim(), telefono: $('us_tel').value.trim(), cargo: $('us_cargo').value.trim(),
+    rol: $('us_rol').value, supervisor: $('us_rol').value === 'comercial' ? $('us_sup').value : '', activo: $('us_activo').value === '1' };
   if (!usuario.correo || !usuario.nombre) { mostrarToast('Correo y nombre son obligatorios', 'error'); return; }
   await conEspera(btn, async () => {
-    try { const r = await api('guardarUsuario', { usuario }); S.usuarios = r.usuarios; S.version = null; cerrarModal(); cargarFiltrosDinamicos(); mostrarToast('Usuario guardado', 'success'); }
+    try { const r = await api('guardarUsuario', { usuario }); S.usuarios = r.usuarios; S.version = null; cerrarModal(); cargarFiltrosDinamicos(); mostrarToast('Usuario guardado', 'success'); sincronizar(true); }
     catch (e) { mostrarToast(e.message, 'error'); }
   });
 }

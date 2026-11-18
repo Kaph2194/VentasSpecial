@@ -270,7 +270,7 @@ async function cambiarEstadoCot(id, sel) {
 // ===== VISTA COTIZACIONES =====
 function renderCotizaciones() {
   const q = normTxt($('cBuscar').value), est = $('cEstado').value, com = $('cComercial').value, desde = $('cDesde').value, hasta = $('cHasta').value;
-  const visibles = esAdmin() ? S.cotizaciones : S.cotizaciones.filter(c => c.comercial === S.usuario.correo);
+  const visibles = S.cotizaciones;
   const lista = visibles.filter(c => {
     if (est === 'vencida' ? !cotVencida(c) : est && c.estado !== est) return false;
     if (com && c.comercial !== com) return false;

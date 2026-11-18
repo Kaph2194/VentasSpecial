@@ -4,12 +4,13 @@
 // (Equivalente a "Placas", "Gestiones" y "Agenda" del módulo de Cartera.)
 // =====================================================================
 
-let leadsModo = 'tabla';                 // 'tabla' | 'tablero'
+let leadsModo = 'tablero';               // 'tablero' (Kanban, por defecto) | 'tabla'
 let leadsOrden = { campo: 'fechaSeguimiento', dir: 1 };
 let leadsFiltrados = [];
 
 // ===== FILTROS =====
-function leadsVisibles() { return esAdmin() ? S.leads : S.leads.filter(l => l.comercial === S.usuario.correo); }
+// El backend ya entrega solo lo que el perfil puede ver (comercial: suyos · supervisor: su equipo · gerencia/admin: todo)
+function leadsVisibles() { return S.leads; }
 function filtrarLeads(ignorarEstado) {
   const q = normTxt($('lBuscar').value), est = $('lEstado').value, com = $('lComercial').value, marca = $('lMarca').value,
     origen = $('lOrigen').value, seg = $('lSeg').value, desde = $('lDesde').value, hasta = $('lHasta').value;
@@ -68,6 +69,7 @@ function renderLeads() {
   document.querySelectorAll('.kpi-click').forEach(k => k.classList.toggle('activo', k.dataset.seg === $('lSeg').value));
   $('btn-modo-tabla').classList.toggle('activo', leadsModo === 'tabla'); $('btn-modo-tablero').classList.toggle('activo', leadsModo === 'tablero');
   $('leads-tabla').classList.toggle('hidden', leadsModo !== 'tabla'); $('leads-tablero').classList.toggle('hidden', leadsModo !== 'tablero');
+  $('sec-embudo').classList.toggle('hidden', leadsModo === 'tablero');
   $('th-comercial').classList.toggle('hidden', !esAdmin());
   if (leadsModo === 'tabla') renderTablaLeads(); else renderTablero();
 }
@@ -107,17 +109,15 @@ function renderTablero() {
   const lista = filtrarLeads(true).filter(l => { const e = $('lEstado').value; return e === 'finales' ? !esActivo(l) : e === 'activos' ? esActivo(l) : e ? l.estado === e : true; });
   const fe = $('lEstado').value; const cols = ESTADOS.filter(e => fe === 'activos' ? !FINALES.includes(e.k) : fe === 'finales' ? FINALES.includes(e.k) : fe && EST[fe] ? e.k === fe : true);
   $('l-count').textContent = `${lista.length} lead(s)`;
-  $('leads-tablero').innerHTML = cols.map(e => {
+  $('leads-tablero').innerHTML = `<div class="kb-leyenda"><span><i class="kb-dot kb-venc"></i>Seguimiento vencido</span><span><i class="kb-dot kb-hoy"></i>Para hoy</span><span><i class="kb-dot kb-sin"></i>Sin fecha</span><span class="td-sub">Clic en el nombre para gestionar · arrastra la tarjeta para cambiar de estado</span></div><div class="kb-cols">` + cols.map(e => {
     const items = lista.filter(l => l.estado === e.k).sort((a, b) => valorOrden(a, 'fechaSeguimiento').localeCompare(valorOrden(b, 'fechaSeguimiento')));
     return `<div class="kb-col" data-estado="${e.k}" ondragover="event.preventDefault();this.classList.add('kb-over')" ondragleave="this.classList.remove('kb-over')" ondrop="soltarEnColumna(event,'${e.k}')">
       <div class="kb-tit"><span class="st ${e.c}">${esc(e.t)}</span><b>${items.length}</b></div>
-      <div class="kb-items">${items.map(l => `<div class="kb-card" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${esc(l.id)}')" onclick="abrirFicha('${esc(l.id)}')">
-        <div class="kb-card-top"><span class="td-id">${esc(l.id)}</span>${badgeSeguimiento(l)}</div>
-        <div class="kb-nombre">${esc(l.prospecto)}</div>
-        <div class="td-sub">${esc([l.marca, l.referencia].filter(Boolean).join(' '))}</div>
-        ${esAdmin() ? `<div class="td-sub">👤 ${esc(nombreUsuario(l.comercial))}</div>` : ''}
-      </div>`).join('') || '<div class="kb-vacio">—</div>'}</div></div>`;
-  }).join('');
+      <div class="kb-items">${items.map(l => { const d = esActivo(l) && l.fechaSeguimiento ? diasR(l.fechaSeguimiento) : null;
+        const cls = !esActivo(l) ? '' : !l.fechaSeguimiento ? 'kb-sin' : d < 0 ? 'kb-venc' : d === 0 ? 'kb-hoy' : '';
+        const tip = `${l.id} · ${[l.marca, l.referencia].filter(Boolean).join(' ')}${veEquipo() ? ' · ' + nombreUsuario(l.comercial) : ''}${l.fechaSeguimiento && esActivo(l) ? ' · seguimiento ' + fmtD(l.fechaSeguimiento) : ''}`;
+        return `<button class="kb-card ${cls}" draggable="true" title="${esc(tip)}" ondragstart="event.dataTransfer.setData('text/plain','${esc(l.id)}')" onclick="abrirFicha('${esc(l.id)}')">${esc(l.prospecto)}</button>`; }).join('') || '<div class="kb-vacio">—</div>'}</div></div>`;
+  }).join('') + '</div>';
 }
 function soltarEnColumna(ev, estado) {
   ev.preventDefault(); document.querySelectorAll('.kb-over').forEach(x => x.classList.remove('kb-over'));
@@ -134,6 +134,8 @@ function cambiarEstadoRapido(id, sel) {
 // Pide nota (y motivo si es "Perdido") antes de cambiar el estado
 function pedirCambioEstado(id, nuevo) {
   const l = S.leads.find(x => x.id === id); if (!l || l.estado === nuevo) return;
+  // la venta pide el cierre: valor real, valor neto, membresía, meses de administración y documentos
+  if (nuevo === 'facturado' || (nuevo === 'entregado' && (!l.venta || docsFaltantes(l.venta).length))) { abrirCierreVenta(id, nuevo); return; }
   const e = EST[nuevo], fin = FINALES.includes(nuevo);
   abrirModal(`Cambiar estado — ${esc(l.id)} · ${esc(l.prospecto)}`, `
     <div class="cambio-est">${badgeEstado(l.estado)} <span>→</span> ${badgeEstado(nuevo)}</div>
@@ -164,7 +166,7 @@ function sugerirSiguiente(id) { setTimeout(() => mostrarToast('🎉 ¡Venta fact
 function abrirFormLead(id) {
   const l = id ? JSON.parse(JSON.stringify(S.leads.find(x => x.id === id))) : {
     fechaContacto: hoyISO(), estado: 'nuevo', origen: '', formaPago: 'Por definir', fechaSeguimiento: sumarDias(hoyISO(), 1), horaSeguimiento: '09:00', comercial: S.usuario.correo };
-  const coms = S.usuarios.filter(u => u.activo || u.correo === l.comercial);
+  const coms = asignables().concat(S.usuarios.filter(u => u.correo === l.comercial && !asignables().includes(u)));
   abrirModal(id ? `Editar lead ${esc(l.id)}` : 'Nuevo lead', `
     <input type="hidden" id="lf_id" value="${esc(l.id || '')}"/>
     <div class="form-sect">Prospecto</div>
@@ -195,10 +197,10 @@ function abrirFormLead(id) {
       ${esAdmin() ? `<div class="form-group"><label>Comercial asignado</label><select id="lf_comercial">${coms.map(u => `<option value="${esc(u.correo)}" ${u.correo === l.comercial ? 'selected' : ''}>${esc(u.nombre)}</option>`).join('')}</select></div>` : ''}
     </div>
     <div class="form-group" style="margin-top:12px"><label>Observaciones</label><textarea id="lf_obs" rows="2" placeholder="Necesidad, color preferido, presupuesto, quién decide la compra…">${esc(l.observaciones || '')}</textarea></div>
-    <p class="nota-cal">📅 La fecha de seguimiento se agenda en ${esAdmin() ? 'el calendario del comercial asignado' : 'tu calendario'} (invitación a ${esc(esAdmin() ? 'su' : 'tu')} correo) con recordatorio.${MODO_DEMO ? ' <b>En modo demo</b> usa el botón 📅 de la agenda para agregarlo.' : ''}</p>`,
+    <p class="nota-cal">📅 La fecha de seguimiento se agenda en ${veEquipo() ? 'el calendario del comercial asignado' : 'tu calendario'} (invitación a ${esc(esAdmin() ? 'su' : 'tu')} correo) con recordatorio.${MODO_DEMO ? ' <b>En modo demo</b> usa el botón 📅 de la agenda para agregarlo.' : ''}</p>`,
     `<button class="btn btn-primary-dark" onclick="guardarFormLead(this)">💾 ${id ? 'Guardar cambios' : 'Crear lead'}</button>`);
   actualizarDlReferencias('lf_marca', 'dl-refs');
-  if (!id) setTimeout(() => $('lf_prospecto').focus(), 60);
+  if (!id) setTimeout(() => { const ae = document.activeElement; if (!ae || !ae.closest('#modal') || ae.tagName === 'BUTTON') $('lf_prospecto').focus(); }, 60);
 }
 function actualizarDlReferencias(inputId, dlId) { const m = ($(inputId) || {}).value || ''; $(dlId).innerHTML = referenciasDe(m).map(r => `<option value="${esc(r)}">`).join(''); }
 async function guardarFormLead(btn) {
@@ -272,11 +274,12 @@ function abrirFicha(id, foco) {
     </div>
     <div class="form-grid" style="margin-top:10px;grid-template-columns:2fr 1fr">
       <div class="form-group"><label>Detalle</label><textarea id="gs_nota" rows="2" placeholder="Qué se habló, objeciones, compromisos…"></textarea></div>
-      <div class="form-group"><label>Avanzar estado a</label><select id="gs_estado"><option value="">Mantener: ${esc(EST[l.estado].t)}</option>${ESTADOS.filter(e => !FINALES.includes(e.k) && e.k !== l.estado).map(e => `<option value="${e.k}">${esc(e.t)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Avanzar estado a</label><select id="gs_estado"><option value="">Mantener: ${esc(EST[l.estado].t)}</option>${ESTADOS.filter(e => !FINALES.includes(e.k) && !GANADOS.includes(e.k) && e.k !== l.estado).map(e => `<option value="${e.k}">${esc(e.t)}</option>`).join('')}</select></div>
     </div>
     <div class="gest-envio"><button class="btn btn-primary-dark" onclick="guardarGestion('${esc(l.id)}',this)">💾 Guardar gestión y agendar</button>
       ${l.fechaSeguimiento ? `<a class="btn btn-sm btn-outline-dark" href="${urlGoogleCalendar(l)}" target="_blank" rel="noopener" title="Agregar el seguimiento actual a Google Calendar">📅 Google Calendar</a><button class="btn btn-sm btn-outline-dark" onclick="descargarICS('${esc(l.id)}')" title="Para Outlook / iPhone">📅 .ics</button>` : ''}</div>` : ''}
 
+    ${htmlVentaFicha(l)}
     <div class="form-sect" id="sec-cotizaciones">Cotizaciones (${cots.length})</div>
     <div class="gest-envio" style="margin:0 0 10px"><button class="btn btn-sm btn-primary-dark" onclick="abrirFormCotizacion('${esc(l.id)}')">📄 Nueva cotización</button>
       <button class="btn btn-sm btn-outline-dark" onclick="abrirCargaCotizacion('${esc(l.id)}')">⬆ Cargar cotización (PDF / imagen)</button></div>
@@ -289,7 +292,7 @@ function abrirFicha(id, foco) {
     <div class="timeline">${timeline.map(x => x.tipo === 'estado' ? `<div class="tl-item tl-estado"><div class="tl-f">${fmtFH(x.f)}</div><div>${x.h.de ? badgeEstado(x.h.de) + ' → ' : ''}${badgeEstado(x.h.a)} ${x.h.nota ? `<div class="tl-nota">${esc(x.h.nota)}</div>` : ''}<div class="td-sub">${esc(nombreUsuario(x.h.usuario))}</div></div></div>`
       : `<div class="tl-item"><div class="tl-f">${fmtFH(x.f)}<small>${esc(x.s.medio || '')}</small></div><div><span class="res-tag ${CLASE_RES(x.s.resultado)}">${esc(x.s.resultado)}</span>${x.s.nota ? `<div class="tl-nota">${esc(x.s.nota)}</div>` : ''}${x.s.proximaFecha ? `<div class="td-sub">Próximo seguimiento: ${fmtD(x.s.proximaFecha)} ${esc(x.s.proximaHora || '')}</div>` : ''}<div class="td-sub">${esc(nombreUsuario(x.s.usuario))}</div></div></div>`).join('') || '<div class="cell-n">Sin movimientos</div>'}</div>`,
     `<button class="btn btn-outline-dark" onclick="abrirFormLead('${esc(l.id)}')">✏️ Editar datos</button>`);
-  if (foco) setTimeout(() => { const s = $(foco === 'cotizaciones' ? 'sec-cotizaciones' : 'sec-gestion'); if (s) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
+  if (foco) setTimeout(() => { const s = $(foco === 'cotizaciones' ? 'sec-cotizaciones' : foco === 'venta' ? 'sec-venta' : 'sec-gestion'); if (s) s.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
 }
 
 // ===== GESTIONES =====
@@ -349,7 +352,7 @@ function renderAgenda() {
 }
 async function enviarAgendaCorreo(btn) {
   await conEspera(btn, async () => {
-    try { const r = await api('enviarInforme'); mostrarToast(r.tipo === 'resumen' ? `Resumen comercial enviado a ${r.para}` : `Agenda enviada a ${r.para} (${r.pendientes} pendientes)`, 'success'); }
+    try { const r = await api('enviarInforme'); mostrarToast(r.tipo === 'informe' ? `Informe de gestiones (${fmtD(r.desde)}${r.hasta !== r.desde ? ' a ' + fmtD(r.hasta) : ''}: ${r.gestiones}) enviado a ${r.para}` : `Agenda enviada a ${r.para} (${r.pendientes} pendientes)`, 'success'); }
     catch (e) { mostrarToast(e.message, 'error'); }
   });
 }

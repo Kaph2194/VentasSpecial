@@ -27,7 +27,7 @@
       <button id="lg-btn2" class="btn btn-primary-dark btn-block" type="submit">Entrar</button>
       <p class="td-sub lg-ayuda"><button type="button" class="link-btn" onclick="mostrarLogin()">← Usar otro correo</button> · <button type="button" class="link-btn" onclick="pedirCodigo()">Reenviar código</button></p>
     </form>
-    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b> (sin backend): entra con <code>gerente@demo.com</code> (administrador), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales). El código es <code>123456</code>.</div>
+    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code>.</div>
   </div>
 </div>
 
@@ -66,7 +66,7 @@
         <div class="kpi-card kpi-vigente"><div class="kpi-icon">🏁</div><div class="kpi-info"><div class="kpi-num" id="k-ventas">0</div><div class="kpi-label">Ventas del mes</div></div></div>
       </div>
 
-      <div class="dash-section">
+      <div class="dash-section" id="sec-embudo">
         <h3 class="dash-title">Embudo de ventas <span class="td-sub">— clic en un estado para filtrar</span></h3>
         <div id="embudo-chips" class="embudo-chips"></div>
       </div>
@@ -87,9 +87,9 @@
           <button class="btn btn-sm btn-clear" onclick="limpiarFiltrosLeads()">✕ Limpiar</button>
           <span class="ley-sep"></span>
           <span id="l-count" class="count-label"></span>
-          <div class="seg-toggle"><button id="btn-modo-tabla" onclick="cambiarModoLeads('tabla')">☰ Tabla</button><button id="btn-modo-tablero" onclick="cambiarModoLeads('tablero')">▦ Tablero</button></div>
+          <div class="seg-toggle"><button id="btn-modo-tablero" onclick="cambiarModoLeads('tablero')">▦ Kanban</button><button id="btn-modo-tabla" onclick="cambiarModoLeads('tabla')">☰ Tabla</button></div>
         </div>
-        <div id="leads-tabla" class="tabla-scroll tabla-cartera-scroll">
+        <div id="leads-tabla" class="tabla-scroll tabla-cartera-scroll hidden">
           <table id="tablaLeads">
             <thead><tr>
               <th class="th-fix" data-ord="id" onclick="ordenarLeads('id')"># Lead</th>
@@ -108,7 +108,7 @@
             <tbody id="tbodyLeads"></tbody>
           </table>
         </div>
-        <div id="leads-tablero" class="kanban hidden"></div>
+        <div id="leads-tablero" class="kanban"></div>
       </div>
     </div>
   </div>
@@ -174,6 +174,7 @@
           <div class="dash-section"><h3 class="dash-title">Leads nuevos y ventas por semana</h3><div id="r-tendencia"></div></div>
         </div>
         <div class="dash-section"><h3 class="dash-title">Resultados por comercial</h3><div id="r-comerciales" class="tabla-scroll"></div></div>
+        <div class="dash-section"><h3 class="dash-title">Rentabilidad real de las ventas (venta vs. cotización, valor neto, membresía y administración)</h3><div id="r-rentabilidad" class="tabla-scroll"></div></div>
         <div class="rep-grid">
           <div class="dash-section"><h3 class="dash-title">Leads por marca</h3><div id="r-marcas"></div></div>
           <div class="dash-section"><h3 class="dash-title">Referencias más solicitadas</h3><div id="r-referencias"></div></div>
@@ -190,13 +191,13 @@
     <div class="dashboard-grid">
       <div class="dash-section dash-section-flush">
         <div class="filtros-bar filtros-bar-in">
-          <h3 class="dash-title" style="margin:0">Comerciales y administradores</h3>
-          <span class="td-sub">Cada persona entra con su correo personal; solo pueden ingresar los correos registrados aquí.</span>
+          <h3 class="dash-title" style="margin:0">Usuarios y equipos</h3>
+          <span class="td-sub">Perfiles: Comercial · Supervisor (ve su equipo) · Gerencia y Administrador (ven todo). Solo entran los correos registrados aquí.</span>
           <span class="ley-sep"></span>
           <button class="btn btn-sm btn-primary-dark" onclick="abrirUsuario()">+ Agregar usuario</button>
         </div>
         <div class="tabla-scroll">
-          <table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Teléfono</th><th>Cargo</th><th>Estado</th><th>Leads activos</th><th class="th-acc"></th></tr></thead><tbody id="tbodyUsuarios"></tbody></table>
+          <table><thead><tr><th>Nombre</th><th>Correo</th><th>Perfil</th><th>Supervisor / equipo</th><th>Teléfono</th><th>Cargo</th><th>Estado</th><th>Leads activos</th><th class="th-acc"></th></tr></thead><tbody id="tbodyUsuarios"></tbody></table>
         </div>
       </div>
     </div>
@@ -223,6 +224,7 @@
 <script src="demo.js"></script>
 <script src="leads.js"></script>
 <script src="cotizaciones.js"></script>
+<script src="venta.js"></script>
 <script src="reportes.js"></script>
 </body>
 </html>

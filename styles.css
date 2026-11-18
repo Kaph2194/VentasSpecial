@@ -450,3 +450,34 @@ thead tr,th,.th-fix,.tabla-cartera-scroll table thead th{background:var(--brand-
 .tabla-cartera-scroll th.ord-activo::after{color:#c3cfe8}
 .kpi-total{border-color:var(--brand)}
 @media(max-width:600px){.logo-img{height:30px}.logo-area .logo-sep,.logo-area>div:last-child{display:none}}
+
+/* ===== Kanban: solo el nombre del prospecto ===== */
+.kanban{display:block;padding:12px 14px 16px;min-height:340px}
+.kb-leyenda{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--g600);margin-bottom:10px}
+.kb-leyenda span{display:inline-flex;align-items:center;gap:5px}
+.kb-dot{width:10px;height:10px;border-radius:3px;display:inline-block;border-left:4px solid var(--g300)}
+.kb-dot.kb-venc{border-color:#dc2626;background:#fef2f2}.kb-dot.kb-hoy{border-color:var(--brand);background:var(--brand-light)}.kb-dot.kb-sin{border-color:#f59e0b;background:#fffbeb}
+.kb-cols{display:flex;gap:10px;overflow-x:auto;align-items:flex-start;padding-bottom:6px}
+.kb-col{flex:0 0 190px;background:var(--brand-light);border-radius:10px;padding:8px;border:2px solid transparent;max-height:66vh;display:flex;flex-direction:column}
+.kb-tit{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:2px 2px 8px}
+.kb-tit b{background:#fff;border-radius:10px;padding:0 8px;font-size:11px;color:var(--brand-dark)}
+.kb-items{gap:5px}
+.kb-card{display:block;width:100%;text-align:left;font-family:inherit;font-size:12.5px;font-weight:600;color:var(--g800);background:#fff;border:1px solid var(--g200);border-left:4px solid var(--g300);border-radius:6px;padding:8px 10px;cursor:pointer;box-shadow:none;line-height:1.25}
+.kb-card:hover{border-color:var(--brand);border-left-color:var(--brand);background:#fff;box-shadow:0 2px 6px rgba(44,72,135,.15)}
+.kb-card:active{cursor:grabbing}
+.kb-card.kb-venc{border-left-color:#dc2626}.kb-card.kb-hoy{border-left-color:var(--brand)}.kb-card.kb-sin{border-left-color:#f59e0b}
+.kb-col .st{white-space:normal;line-height:1.2}
+
+/* ===== Cierre de venta ===== */
+.docs-venta{display:flex;flex-direction:column;gap:6px}
+.doc-row{display:grid;grid-template-columns:24px 1fr 230px auto;gap:8px;align-items:center;padding:8px 10px;border:1px dashed var(--g300);border-radius:8px;background:#fff}
+.doc-row.doc-ok{border-style:solid;border-color:var(--green-b);background:var(--green-bg)}
+.doc-t{display:flex;flex-direction:column;font-size:12px}.doc-t small{color:var(--g500);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-row input[type=file]{font-size:11px;max-width:230px}
+.venta-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:var(--brand-light);border:1px solid var(--blue-b);border-radius:8px;padding:12px 14px}
+.venta-grid label{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--g500);font-weight:700;margin-bottom:2px}
+.venta-grid b{font-size:14px;font-variant-numeric:tabular-nums}.venta-grid small{display:block;font-size:10.5px;color:var(--g600)}
+.docs-mini{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.doc-chip{font-size:11px;border:1px dashed var(--g300);border-radius:20px;padding:4px 10px;background:#fff;color:var(--g600);font-family:inherit}
+button.doc-chip{cursor:pointer}.doc-chip.doc-ok{border-style:solid;border-color:var(--green-b);background:var(--green-bg);color:#15803d}
+@media(max-width:900px){.doc-row{grid-template-columns:24px 1fr}.doc-row input[type=file]{grid-column:1/-1}.venta-grid{grid-template-columns:1fr 1fr}}

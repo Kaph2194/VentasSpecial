@@ -4,7 +4,7 @@
 // esté vacía. Para empezar de cero: DemoBackend.reiniciar().
 // =====================================================================
 const DemoBackend = (() => {
-  const CLAVE = 'vt_demo_v1';
+  const CLAVE = 'vt_demo_v3';
   let db = null;
   const ahora = () => new Date().toISOString();
   const rid = p => p + '-' + Math.random().toString(36).slice(2, 10);
@@ -15,9 +15,11 @@ const DemoBackend = (() => {
 
   function semilla() {
     const U = [
-      { correo: 'gerente@demo.com', nombre: 'Laura Gómez', rol: 'admin', activo: true, telefono: '310 555 0101', cargo: 'Gerente comercial' },
-      { correo: 'carlos.ruiz@gmail.com', nombre: 'Carlos Ruiz', rol: 'comercial', activo: true, telefono: '311 555 0202', cargo: 'Asesor comercial' },
-      { correo: 'andrea.mejia@gmail.com', nombre: 'Andrea Mejía', rol: 'comercial', activo: true, telefono: '312 555 0303', cargo: 'Asesora comercial' }
+      { correo: 'admin@demo.com', nombre: 'Administrador del sistema', rol: 'admin', activo: true, telefono: '', cargo: 'Administrador', supervisor: '' },
+      { correo: 'gerente@demo.com', nombre: 'Laura Gómez', rol: 'gerencia', activo: true, telefono: '310 555 0101', cargo: 'Gerente comercial', supervisor: '' },
+      { correo: 'supervisor@demo.com', nombre: 'Marta Supervisora', rol: 'supervisor', activo: true, telefono: '313 555 0404', cargo: 'Supervisora comercial', supervisor: '' },
+      { correo: 'carlos.ruiz@gmail.com', nombre: 'Carlos Ruiz', rol: 'comercial', activo: true, telefono: '311 555 0202', cargo: 'Asesor comercial', supervisor: 'supervisor@demo.com' },
+      { correo: 'andrea.mejia@gmail.com', nombre: 'Andrea Mejía', rol: 'comercial', activo: true, telefono: '312 555 0303', cargo: 'Asesora comercial', supervisor: '' }
     ];
     const ej = [
       ['Juan Pablo Torres', '3104567890', 'Mazda', 'CX-30', 'Grand Touring 2026', 'Página web', 'cotizado', 1, '10:00', 'carlos.ruiz@gmail.com', -12, 138900000, 'Crédito'],
@@ -65,6 +67,14 @@ const DemoBackend = (() => {
       }
       leads.push(l);
     });
+    // cierres de venta de ejemplo (uno por debajo de la cotización, otro con documentos pendientes)
+    leads.filter(l => GANADOS.includes(l.estado)).forEach((l, i) => {
+      const c = cots.filter(x => x.leadId === l.id)[0]; const cot = c ? c.total : l.valorEstimado;
+      const venta = i === 0 ? cot - 2500000 : cot;
+      l.venta = { fecha: l.fechaVenta, factura: 'FV-' + (1201 + i), cotizacionId: c ? c.id : '', valorCotizado: cot, valorVenta: venta, valorNeto: Math.round(cot * 0.86 / 100000) * 100000,
+        membresia: 1800000, mesesAdmin: i === 0 ? 2 : 1, valorMesAdmin: 350000, observaciones: '', registradoPor: l.comercial, registrado: ts(-2, 16),
+        documentos: l.estado === 'entregado' ? { factura: { nombre: 'factura.pdf', demo: true }, homologacion: { nombre: 'homologacion.pdf', demo: true }, aduana: { nombre: 'aduana.pdf', demo: true }, contrato: { nombre: 'contrato.pdf', demo: true } } : { factura: { nombre: 'factura.pdf', demo: true } } };
+    });
     leads.forEach(l => { l.nCotizaciones = cots.filter(c => c.leadId === l.id).length; l.nombreComercial = U.find(u => u.correo === l.comercial).nombre; l.actualizado = ahora(); });
     return { usuarios: U, leads, cotizaciones: cots, seq: { LEAD: leads.length, COT: nCot }, archivos: {}, version: String(Date.now()) };
   }
@@ -75,14 +85,16 @@ const DemoBackend = (() => {
     return db;
   }
   const usuarioDe = token => { const c = String(token || '').replace(/^demo:/, ''); const u = db.usuarios.find(x => x.correo === c); return u && u.activo ? u : null; };
-  const puedeVer = (u, l) => u.rol === 'admin' || l.comercial === u.correo;
+  const verTodoU = u => ['admin', 'gerencia'].includes(u.rol);
+  const alcance = u => { if (verTodoU(u)) return null; const s = new Set([u.correo]); if (u.rol === 'supervisor') db.usuarios.forEach(x => x.supervisor === u.correo && s.add(x.correo)); return s; };
+  const puedeVer = (u, l) => { const a = alcance(u); return !a || a.has(l.comercial); };
   const unir = (a, b) => { const m = new Map(); (a || []).concat(b || []).forEach(x => x && x.id && m.set(x.id, Object.assign({}, m.get(x.id) || {}, x))); return [...m.values()].sort((x, y) => String(x.fecha).localeCompare(String(y.fecha))); };
   const copia = o => JSON.parse(JSON.stringify(o));
 
   const acciones = {
     solicitarCodigo(p) {
       const c = String(p.correo || '').trim().toLowerCase(); const u = db.usuarios.find(x => x.correo === c);
-      if (!u || !u.activo) throw new Error('Este correo no está autorizado. En el demo usa gerente@demo.com, carlos.ruiz@gmail.com o andrea.mejia@gmail.com');
+      if (!u || !u.activo) throw new Error('Este correo no está autorizado. En el demo usa admin@demo.com, gerente@demo.com, supervisor@demo.com, carlos.ruiz@gmail.com o andrea.mejia@gmail.com');
       return { ok: true, enviado: true, codigoDemo: '123456' };
     },
     verificarCodigo(p) {
@@ -102,15 +114,20 @@ const DemoBackend = (() => {
       const previo = lead.id ? db.leads.find(x => x.id === lead.id) : null;
       if (previo) {
         if (!puedeVer(u, previo)) throw new Error('Este lead pertenece a otro comercial');
-        if (u.rol !== 'admin') lead.comercial = previo.comercial;
+        if (u.rol === 'comercial') lead.comercial = previo.comercial;
         lead.historial = unir(previo.historial, lead.historial); lead.seguimientos = unir(previo.seguimientos, lead.seguimientos);
         lead.creado = previo.creado; lead.creadoPor = previo.creadoPor;
       } else {
         db.seq.LEAD++; lead.id = 'L-' + String(db.seq.LEAD).padStart(4, '0'); lead.creado = ahora(); lead.creadoPor = u.correo;
-        if (u.rol !== 'admin' || !lead.comercial) lead.comercial = u.correo;
+        if (u.rol === 'comercial' || !lead.comercial) lead.comercial = u.correo;
         lead.historial = lead.historial && lead.historial.length ? lead.historial : [{ id: rid('H'), fecha: ahora(), de: '', a: lead.estado, nota: 'Lead creado', usuario: u.correo }];
       }
+      const alc = alcance(u); if (alc && !alc.has(lead.comercial)) throw new Error('Solo puedes asignar leads a comerciales de tu equipo');
       const com = db.usuarios.find(x => x.correo === lead.comercial); if (!com) throw new Error('Comercial no registrado');
+      if (previo) lead.venta = previo.venta;
+      const cambia = !previo || previo.estado !== lead.estado;
+      if (cambia && GANADOS.includes(lead.estado) && !(lead.venta && lead.venta.valorVenta > 0)) throw new Error('Para pasar a ' + EST[lead.estado].t + ' registra el cierre de venta');
+      if (cambia && lead.estado === 'entregado' && docsFaltantes(lead.venta).length) throw new Error('Para finalizar como Entregado faltan documentos: ' + docsFaltantes(lead.venta).map(k => DOCS_VENTA[k]).join(', '));
       lead.nombreComercial = com.nombre;
       if (GANADOS.includes(lead.estado)) lead.fechaVenta = lead.fechaVenta || hoyISO(); else delete lead.fechaVenta;
       if (FINALES.includes(lead.estado)) lead.fechaCierre = lead.fechaCierre || hoyISO(); else delete lead.fechaCierre;
@@ -138,6 +155,29 @@ const DemoBackend = (() => {
       lead.nCotizaciones = db.cotizaciones.filter(c => c.leadId === lead.id).length; lead.actualizado = ahora();
       tocar(); return { ok: true, cotizacion: copia(cot), lead: copia(lead) };
     },
+    guardarVenta(p, u) {
+      const l = db.leads.find(x => x.id === p.leadId); if (!l || !puedeVer(u, l)) throw new Error('No tienes acceso a este lead');
+      const e = p.venta || {}; if (!(e.valorVenta > 0)) throw new Error('Indica el valor real de la venta'); if (!(e.valorNeto > 0)) throw new Error('Indica el valor neto del vehículo');
+      const cot = db.cotizaciones.find(c => c.id === e.cotizacionId && c.leadId === l.id);
+      l.venta = Object.assign({}, e, { valorCotizado: cot ? cot.total : 0, documentos: (l.venta || {}).documentos || {}, registradoPor: (l.venta || {}).registradoPor || u.correo, actualizado: ahora() });
+      if (cot) cot.estado = 'aceptada';
+      if (p.estado === 'entregado' && docsFaltantes(l.venta).length) throw new Error('Para finalizar como Entregado faltan documentos: ' + docsFaltantes(l.venta).map(k => DOCS_VENTA[k]).join(', '));
+      if (p.estado && p.estado !== l.estado) { const c = calcVenta(l.venta); l.historial.push({ id: rid('H'), fecha: ahora(), de: l.estado, a: p.estado, nota: `Venta ${fmtCOP(l.venta.valorVenta)} (${c.comparacion.toLowerCase()}) · membresía ${fmtCOP(l.venta.membresia)}`, usuario: u.correo }); l.estado = p.estado; }
+      if (GANADOS.includes(l.estado)) l.fechaVenta = l.venta.fecha; if (FINALES.includes(l.estado)) l.fechaCierre = l.fechaCierre || hoyISO();
+      l.actualizado = ahora(); tocar(); return { ok: true, lead: copia(l) };
+    },
+    subirDocumentoVenta(p, u) {
+      const l = db.leads.find(x => x.id === p.leadId); if (!l || !puedeVer(u, l)) throw new Error('No tienes acceso a este lead');
+      if (!l.venta) throw new Error('Primero registra el cierre de venta');
+      if (p.archivo.base64.length > 3.5e6) throw new Error('En el modo demo cada documento debe pesar menos de 2,5 MB (con el backend real, 8 MB)');
+      db.archivos['venta:' + l.id + ':' + p.tipo] = p.archivo; l.venta.documentos[p.tipo] = { nombre: p.archivo.nombre, mime: p.archivo.mime, demo: true };
+      tocar(); return { ok: true, lead: copia(l) };
+    },
+    obtenerDocumento(p) {
+      const a = db.archivos['venta:' + p.leadId + ':' + p.tipo];
+      if (a) return { ok: true, nombre: a.nombre, mime: a.mime, base64: a.base64 };
+      return { ok: true, nombre: p.tipo + '_ejemplo.txt', mime: 'text/plain', base64: btoa('Documento de ejemplo del modo demo (' + p.tipo + ')') };
+    },
     obtenerArchivo(p) { const a = db.archivos[p.cotizacionId]; if (!a) throw new Error('El archivo no está en este navegador'); return { ok: true, nombre: a.nombre, mime: a.mime, base64: a.base64 }; },
     enviarCotizacion(p, u) {
       const c = db.cotizaciones.find(x => x.id === p.cotizacionId); const l = db.leads.find(x => x.id === c.leadId);
@@ -146,15 +186,20 @@ const DemoBackend = (() => {
       tocar(); return { ok: true, cotizacion: copia(c), lead: copia(l) };
     },
     guardarUsuario(p, u) {
-      if (u.rol !== 'admin') throw new Error('Solo un administrador puede gestionar usuarios');
-      const n = p.usuario; const ex = db.usuarios.find(x => x.correo === n.correo);
-      if (n.correo === u.correo && n.activo === false) throw new Error('No puedes desactivar tu propio usuario');
+      if (!verTodoU(u)) throw new Error('Solo gerencia o un administrador pueden gestionar usuarios');
+      const n = Object.assign({}, p.usuario); const ex = db.usuarios.find(x => x.correo === n.correo);
+      if (n.correo === u.correo && (n.activo === false || n.rol !== u.rol)) throw new Error('No puedes desactivar ni cambiar el perfil de tu propio usuario');
+      if (u.rol !== 'admin' && (n.rol === 'admin' || (ex && ex.rol === 'admin'))) throw new Error('Solo un administrador puede crear o modificar administradores');
+      if (n.rol !== 'comercial') n.supervisor = '';
+      if (ex && ex.rol === 'supervisor' && n.rol !== 'supervisor') db.usuarios.forEach(x => { if (x.supervisor === ex.correo) x.supervisor = ''; });
       if (ex) Object.assign(ex, n); else db.usuarios.push(n);
       tocar(); return { ok: true, usuarios: copia(db.usuarios) };
     },
     enviarInforme(p, u) {
       const pend = db.leads.filter(l => l.comercial === u.correo && esActivo(l) && l.fechaSeguimiento && l.fechaSeguimiento <= hoyISO()).length;
-      return { ok: true, tipo: u.rol === 'admin' ? 'resumen' : 'agenda', para: u.correo + ' (simulado en el demo)', pendientes: pend };
+      const ay = sumarDias(hoyISO(), -1); const ids = new Set(db.leads.filter(l => puedeVer(u, l)).map(l => l.id));
+      const g = db.leads.filter(l => ids.has(l.id)).reduce((s, l) => s + (l.seguimientos || []).filter(x => isoDe(new Date(x.fecha)) === ay && x.medio !== 'Cotización').length, 0);
+      return u.rol === 'comercial' ? { ok: true, tipo: 'agenda', para: u.correo + ' (simulado en el demo)', pendientes: pend } : { ok: true, tipo: 'informe', para: u.correo + ' (simulado en el demo)', gestiones: g, desde: ay, hasta: ay };
     }
   };
   return {
