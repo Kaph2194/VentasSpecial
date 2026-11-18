@@ -481,3 +481,4 @@ thead tr,th,.th-fix,.tabla-cartera-scroll table thead th{background:var(--brand-
 .doc-chip{font-size:11px;border:1px dashed var(--g300);border-radius:20px;padding:4px 10px;background:#fff;color:var(--g600);font-family:inherit}
 button.doc-chip{cursor:pointer}.doc-chip.doc-ok{border-style:solid;border-color:var(--green-b);background:var(--green-bg);color:#15803d}
 @media(max-width:900px){.doc-row{grid-template-columns:24px 1fr}.doc-row input[type=file]{grid-column:1/-1}.venta-grid{grid-template-columns:1fr 1fr}}
+.banner-alerta{background:var(--red-bg);border-bottom-color:var(--red-b);color:#991b1b}.banner-alerta code{background:#fff;padding:0 4px;border-radius:3px}

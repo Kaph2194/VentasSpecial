@@ -25,6 +25,9 @@
  * =====================================================================
  */
 
+// Versión del backend: la app avisa si la página espera una versión distinta
+const VERSION_BACKEND = '2026-11-18.3';
+
 const CONFIG = {
   EMPRESA: {
     nombre: 'Special Car',
@@ -74,7 +77,7 @@ function rolDe_(t) { t = String(t || ''); return /admin/i.test(t) ? 'admin' : /g
 
 // ===================== WEB APP =====================
 function doGet() {
-  return json_({ ok: true, servicio: 'ventas-seguimiento-comercial', disparador: asegurarDisparador_() });
+  return json_({ ok: true, servicio: 'ventas-seguimiento-comercial', version: VERSION_BACKEND, disparador: asegurarDisparador_() });
 }
 
 function doPost(e) {
@@ -83,7 +86,7 @@ function doPost(e) {
     asegurarDisparador_();
     // acciones públicas (sin sesión)
     switch (p.accion) {
-      case 'ping':            return json_({ ok: true, empresa: CONFIG.EMPRESA.nombre });
+      case 'ping':            return json_({ ok: true, empresa: CONFIG.EMPRESA.nombre, version: VERSION_BACKEND });
       case 'solicitarCodigo': return json_(solicitarCodigo_(p.correo));
       case 'verificarCodigo': return json_(verificarCodigo_(p.correo, p.codigo));
     }
@@ -660,7 +663,7 @@ function obtenerDatos_(u, version) {
   const leads = leerLeads_().filter(l => puedeVer_(u, l, alc)).map(limpio_);
   const ids = {}; leads.forEach(l => ids[l.id] = true);
   const cots = leerCotizaciones_().filter(c => ids[c.leadId]).map(limpio_);
-  return { version: v, usuario: publico_(u), usuarios: usuarios.map(publico_), leads: leads, cotizaciones: cots,
+  return { version: v, versionBackend: VERSION_BACKEND, usuario: publico_(u), usuarios: usuarios.map(publico_), leads: leads, cotizaciones: cots,
     empresa: CONFIG.EMPRESA, validezCotizacion: CONFIG.VALIDEZ_COTIZACION_DIAS, calendario: CONFIG.CALENDARIO_NOMBRE || 'principal',
     hoja: verTodo_(u) ? libro_().getUrl() : '', carpeta: verTodo_(u) ? (PropertiesService.getScriptProperties().getProperty('CARPETA_COT_URL') || '') : '' };
 }

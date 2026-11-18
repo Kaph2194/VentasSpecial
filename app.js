@@ -15,6 +15,9 @@ const MODO_DEMO = /[?&]demo\b/.test(location.search) || !/^https:\/\/script\.goo
 // Datos de la empresa para el encabezado de las cotizaciones (el backend los reemplaza con su CONFIG.EMPRESA)
 let EMPRESA = { nombre: 'Special Car', nit: '', direccion: '', ciudad: 'Bogotá D.C.', telefono: '', correo: '', web: '' };
 let VALIDEZ_COTIZACION = 8;
+// Versión de apps-script/Ventas.gs que espera esta página
+const VERSION_BACKEND_ESPERADA = '2026-11-18.3';
+let _avisoVersion = false;
 
 // ===== CATÁLOGOS =====
 const ESTADOS = [
@@ -201,6 +204,7 @@ function sincronizar(forzar) {
         if (r.empresa) EMPRESA = Object.assign({}, EMPRESA, r.empresa);
         if (r.validezCotizacion) VALIDEZ_COTIZACION = r.validezCotizacion;
         S.hoja = r.hoja || ''; S.carpeta = r.carpeta || '';
+        if (!MODO_DEMO && r.versionBackend !== VERSION_BACKEND_ESPERADA && !_avisoVersion) { _avisoVersion = true; $('banner-version').classList.remove('hidden'); }
         cargarFiltrosDinamicos(); refrescarVista();
       }
       estadoSync(true);
