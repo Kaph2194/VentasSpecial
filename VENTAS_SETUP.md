@@ -6,7 +6,8 @@ App para el equipo comercial, construida sobre el módulo de **Cartera** de Spec
 
 | Función | Detalle |
 |---|---|
-| **Ingreso por correo personal** | Cada comercial escribe su correo (Gmail, Hotmail, corporativo…) y recibe un **código de 6 dígitos**. Solo entran los correos registrados por el administrador. La sesión se recuerda 30 días en ese navegador. |
+| **Ingreso por correo personal** | Cada persona escribe su correo (Gmail, Hotmail, corporativo…) y recibe un **código de 6 dígitos**. La sesión se recuerda 30 días en ese navegador. |
+| **Registro propio** | Comerciales y supervisores se registran solos en **Crear cuenta** (nombre, correo y celular; el código confirma que el correo es suyo) y **quedan como Comercial**. Gerencia y administradores reciben un correo por cada registro, y en 👥 Usuarios los nuevos aparecen marcados para **cambiar el perfil a Supervisor** o **asignarles su supervisor**; a quien no pertenezca al equipo se le desactiva (un usuario inactivo no puede volver a registrarse). Se puede restringir a ciertos dominios con `CONFIG.DOMINIOS_REGISTRO` o apagar con `CONFIG.PERMITIR_REGISTRO = false`. |
 | **Leads** | **# Lead** consecutivo (L-0001…), nombre del prospecto, teléfono (enlace a WhatsApp), correo, cédula, ciudad, **fecha de contacto**, **fecha y hora de seguimiento**, **marca** y **referencia** del vehículo, versión, origen, forma de pago, retoma, valor estimado, observaciones. Aviso de duplicado por teléfono. |
 | **Vista Kanban** | Vista principal de los leads: una columna por estado y en cada tarjeta **solo el nombre del prospecto** (borde rojo = seguimiento vencido, azul = hoy, ámbar = sin fecha). Al hacer clic se abre la ficha con todo lo necesario para gestionar: WhatsApp/llamada, vehículo, próximo seguimiento, registro de gestión, cotizaciones, cierre de venta e historial. Arrastrar la tarjeta cambia el estado. También hay vista de tabla. |
 | **Estados hasta la finalización** | Nuevo → Contactado → Cita / visita → Prueba de manejo → Cotizado → Negociación → Crédito en estudio → Aprobado / separado → Facturado → **Entregado** (fin, venta) · o **Perdido** (fin, con motivo obligatorio). Cada cambio queda en el historial con fecha y usuario. Se cambia desde la tabla, la ficha (barra de pasos) o arrastrando en el **tablero**. |
@@ -54,7 +55,7 @@ Una cuenta de Google que será la "dueña" del sistema, por ejemplo `ventas@spec
 3. En `Ventas.gs`, poner esa dirección en `CONFIG.URL_APP` (por ejemplo `https://kaph2194.github.io/VentasSpecial`) y publicar una nueva versión (paso "Mantenimiento"): así los correos muestran el logo y traen un enlace directo al lead.
 
 ### 5. Registrar a los comerciales
-Entrar a la app con la cuenta dueña → **👥 Usuarios → + Agregar usuario**: correo personal, nombre, perfil, teléfono y cargo (salen en las cotizaciones). Crear primero a los **supervisores** y luego, en cada comercial, elegir su **supervisor a cargo**. Cada persona ya puede entrar con su correo.
+Compartir la dirección de la app con el equipo para que cada uno se registre en **Crear cuenta** (https://kaph2194.github.io/VentasSpecial/?real&registro abre directamente el registro). Todos quedan como **Comercial**. Luego, con la cuenta dueña o de gerencia, en **👥 Usuarios**: cambiar a **Supervisor** a quien corresponda y, en cada comercial, elegir su **supervisor a cargo**. También se pueden crear usuarios a mano con **+ Agregar usuario**.
 
 ---
 

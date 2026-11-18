@@ -26,7 +26,7 @@
  */
 
 // Versión del backend: la app avisa si la página espera una versión distinta
-const VERSION_BACKEND = '2026-11-18.3';
+const VERSION_BACKEND = '2026-11-18.4';
 
 const CONFIG = {
   EMPRESA: {
@@ -49,6 +49,9 @@ const CONFIG = {
   VALIDEZ_COTIZACION_DIAS: 8,
   DURACION_SESION_DIAS: 30,          // días que la app recuerda el ingreso en ese navegador
   ADMINS: [],                        // correos que siempre son administradores (además de la cuenta dueña)
+  PERMITIR_REGISTRO: true,           // comerciales y supervisores se registran solos con su correo; quedan como Comercial
+  DOMINIOS_REGISTRO: [],             // vacío = cualquier correo; p.ej. ['specialcar.com.co','gmail.com'] para restringir
+  AVISAR_REGISTROS: true,            // gerencia y administradores reciben un correo con cada registro nuevo
   HORA_AGENDA: 7,                    // hora (0-23) del correo diario de agenda e informe
   ENVIAR_AGENDA_COMERCIALES: true,   // cada comercial recibe sus seguimientos vencidos y del día
   // Informe "día vencido": cada mañana llegan las gestiones del día anterior (el lunes: sábado y domingo)
@@ -86,8 +89,8 @@ function doPost(e) {
     asegurarDisparador_();
     // acciones públicas (sin sesión)
     switch (p.accion) {
-      case 'ping':            return json_({ ok: true, empresa: CONFIG.EMPRESA.nombre, version: VERSION_BACKEND });
-      case 'solicitarCodigo': return json_(solicitarCodigo_(p.correo));
+      case 'ping':            return json_({ ok: true, empresa: CONFIG.EMPRESA.nombre, version: VERSION_BACKEND, registro: CONFIG.PERMITIR_REGISTRO });
+      case 'solicitarCodigo': return json_(solicitarCodigo_(p.correo, p.registro));
       case 'verificarCodigo': return json_(verificarCodigo_(p.correo, p.codigo));
     }
     const u = usuarioDeToken_(p.token);
@@ -159,7 +162,8 @@ function leerUsuarios_() {
   return h.getRange(2, 1, n, ENC_USUARIOS.length).getValues().filter(f => f[0]).map((f, i) => {
     const correo = normCorreo_(f[0]);
     return { fila: i + 2, correo: correo, nombre: String(f[1] || correo), rol: admins.indexOf(correo) >= 0 ? 'admin' : rolDe_(f[2]),
-      activo: !/^(no|false|0|inactivo)$/i.test(String(f[3]).trim()), telefono: String(f[4] || ''), cargo: String(f[5] || ''), supervisor: normCorreo_(f[8]) };
+      activo: !/^(no|false|0|inactivo)$/i.test(String(f[3]).trim()), telefono: String(f[4] || ''), cargo: String(f[5] || ''), supervisor: normCorreo_(f[8]),
+      creado: f[6] instanceof Date ? f[6].toISOString() : String(f[6] || '') };
   });
 }
 function asegurarUsuariosIniciales_(h) {
@@ -168,7 +172,7 @@ function asegurarUsuariosIniciales_(h) {
   lista.forEach(c => h.appendRow([c, c === dueno ? 'Administrador' : c, 'Administrador', 'Sí', '', 'Gerente comercial', new Date(), '']));
 }
 function usuarioPorCorreo_(correo) { correo = normCorreo_(correo); return leerUsuarios_().filter(u => u.correo === correo)[0] || null; }
-const publico_ = u => ({ correo: u.correo, nombre: u.nombre, rol: u.rol, activo: u.activo, telefono: u.telefono, cargo: u.cargo, supervisor: u.supervisor || '' });
+const publico_ = u => ({ correo: u.correo, nombre: u.nombre, rol: u.rol, activo: u.activo, telefono: u.telefono, cargo: u.cargo, supervisor: u.supervisor || '', creado: u.creado || '' });
 // Correos cuyos leads ve el usuario: todos (gerencia/admin), él + su equipo (supervisor), solo él (comercial)
 function alcance_(u, usuarios) {
   if (verTodo_(u)) return null;
@@ -177,12 +181,28 @@ function alcance_(u, usuarios) {
   return s;
 }
 
-/** Envía un código de 6 dígitos al correo del comercial (válido 10 minutos). */
-function solicitarCodigo_(correo) {
+/**
+ * Envía un código de 6 dígitos al correo (válido 10 minutos).
+ * Con `registro` ({nombre, telefono}) y un correo que aún no existe, es un registro nuevo:
+ * al verificar el código se crea el usuario como Comercial (gerencia/admin luego cambian perfil y equipo).
+ */
+function solicitarCodigo_(correo, registro) {
   correo = normCorreo_(correo);
   if (!correoOk_(correo)) throw new Error('Escribe un correo válido');
-  const u = usuarioPorCorreo_(correo);
-  if (!u || !u.activo) throw new Error('Este correo no está autorizado. Pide al administrador que te registre en la app.');
+  let u = usuarioPorCorreo_(correo), nombre = u ? u.nombre : '';
+  const cacheR = CacheService.getScriptCache();
+  if (u && !u.activo) throw new Error('Tu usuario está inactivo. Comunícate con gerencia o el administrador.');
+  if (!u) {
+    if (!registro) throw new Error(CONFIG.PERMITIR_REGISTRO ? 'Este correo no está registrado. Usa "Crear cuenta" para registrarte.' : 'Este correo no está autorizado. Pide al administrador que te registre en la app.');
+    if (!CONFIG.PERMITIR_REGISTRO) throw new Error('El registro está desactivado. Pide al administrador que te registre.');
+    const dom = correo.split('@')[1];
+    if (CONFIG.DOMINIOS_REGISTRO.length && CONFIG.DOMINIOS_REGISTRO.map(normCorreo_).indexOf(dom) < 0) throw new Error('Solo se pueden registrar correos de: ' + CONFIG.DOMINIOS_REGISTRO.join(', '));
+    nombre = String(registro.nombre || '').trim().replace(/\s+/g, ' ');
+    if (nombre.length < 5 || nombre.indexOf(' ') < 0) throw new Error('Escribe tu nombre y apellido');
+    const tel = String(registro.telefono || '').replace(/[^\d+ ]/g, '').trim();
+    if (tel.replace(/\D/g, '').length < 7) throw new Error('Escribe tu número de celular');
+    cacheR.put('REG_' + correo, JSON.stringify({ nombre: nombre.slice(0, 80), telefono: tel.slice(0, 20) }), 900);
+  }
   const cache = CacheService.getScriptCache();
   const nEnvios = Number(cache.get('OTPN_' + correo)) || 0;
   if (nEnvios >= 5) throw new Error('Pediste demasiados códigos. Espera 15 minutos e inténtalo de nuevo.');
@@ -192,11 +212,31 @@ function solicitarCodigo_(correo) {
   MailApp.sendEmail(correo, 'Tu código de acceso: ' + codigo, 'Tu código para entrar a la app de Ventas es ' + codigo + '. Vence en 10 minutos.', {
     name: CONFIG.NOMBRE_REMITENTE,
     htmlBody: '<div style="' + S_.wrap + ';max-width:460px">' + logoCorreo_() + '<h1 style="' + S_.h1 + '">Código de acceso</h1>' +
-      '<p style="font-size:13px">Hola ' + esc_(u.nombre) + ', este es tu código para entrar a la app de seguimiento comercial:</p>' +
+      '<p style="font-size:13px">Hola ' + esc_(nombre) + ', este es tu código para ' + (u ? 'entrar a' : 'terminar tu registro en') + ' la app de seguimiento comercial:</p>' +
       '<p style="font-size:34px;font-weight:800;letter-spacing:8px;color:#2c4887;margin:18px 0">' + codigo + '</p>' +
       '<p style="font-size:12px;color:#6b7280">Vence en 10 minutos. Si no lo pediste, ignora este correo.</p></div>'
   });
-  return { ok: true, enviado: true };
+  return { ok: true, enviado: true, nuevo: !u };
+}
+// Crea el usuario registrado (Comercial, activo) y avisa a gerencia/administradores
+function crearRegistro_(correo, reg) {
+  const lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    if (usuarioPorCorreo_(correo)) return;
+    hoja_('Usuarios', ENC_USUARIOS).appendRow([correo, reg.nombre, 'Comercial', 'Sí', reg.telefono, 'Asesor comercial', new Date(), '', '']);
+    tocarVersion_();
+  } finally { lock.releaseLock(); }
+  if (!CONFIG.AVISAR_REGISTROS) return;
+  const destinos = leerUsuarios_().filter(x => x.activo && verTodo_(x)).map(x => x.correo);
+  if (!destinos.length) return;
+  try {
+    MailApp.sendEmail(destinos.join(','), '[VENTAS] Nuevo registro: ' + reg.nombre, reg.nombre + ' (' + correo + ') se registró como Comercial.', {
+      name: CONFIG.NOMBRE_REMITENTE,
+      htmlBody: '<div style="' + S_.wrap + ';max-width:520px">' + logoCorreo_() + '<h1 style="' + S_.h1 + '">Nuevo usuario registrado</h1>' +
+        '<p style="font-size:13px"><b>' + esc_(reg.nombre) + '</b> (' + esc_(correo) + ', ' + esc_(reg.telefono) + ') se registró en la app y quedó con perfil <b>Comercial</b>.</p>' +
+        '<p style="font-size:13px">Si es supervisor, cambia su perfil; si es comercial, asígnale su supervisor en <b>👥 Usuarios</b>' + (CONFIG.URL_APP ? ': <a href="' + CONFIG.URL_APP + '?real#usuarios">abrir la app</a>' : '') + '. Si no pertenece al equipo, desactívalo.</p></div>'
+    });
+  } catch (e) { console.warn('Aviso de registro', e); }
 }
 function verificarCodigo_(correo, codigo) {
   correo = normCorreo_(correo);
@@ -211,6 +251,11 @@ function verificarCodigo_(correo, codigo) {
     throw new Error('Código incorrecto (' + (5 - o.i) + ' intento(s) más)');
   }
   cache.remove('OTP_' + correo);
+  if (!usuarioPorCorreo_(correo)) {
+    const reg = cache.get('REG_' + correo);
+    if (!reg || !CONFIG.PERMITIR_REGISTRO) throw new Error('Este correo no está registrado');
+    crearRegistro_(correo, JSON.parse(reg)); cache.remove('REG_' + correo);
+  }
   const u = usuarioPorCorreo_(correo);
   if (!u || !u.activo) throw new Error('Usuario inactivo');
   const token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
@@ -664,7 +709,7 @@ function obtenerDatos_(u, version) {
   const ids = {}; leads.forEach(l => ids[l.id] = true);
   const cots = leerCotizaciones_().filter(c => ids[c.leadId]).map(limpio_);
   return { version: v, versionBackend: VERSION_BACKEND, usuario: publico_(u), usuarios: usuarios.map(publico_), leads: leads, cotizaciones: cots,
-    empresa: CONFIG.EMPRESA, validezCotizacion: CONFIG.VALIDEZ_COTIZACION_DIAS, calendario: CONFIG.CALENDARIO_NOMBRE || 'principal',
+    registroAbierto: CONFIG.PERMITIR_REGISTRO, empresa: CONFIG.EMPRESA, validezCotizacion: CONFIG.VALIDEZ_COTIZACION_DIAS, calendario: CONFIG.CALENDARIO_NOMBRE || 'principal',
     hoja: verTodo_(u) ? libro_().getUrl() : '', carpeta: verTodo_(u) ? (PropertiesService.getScriptProperties().getProperty('CARPETA_COT_URL') || '') : '' };
 }
 

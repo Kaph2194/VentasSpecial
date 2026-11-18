@@ -94,12 +94,22 @@ const DemoBackend = (() => {
   const acciones = {
     solicitarCodigo(p) {
       const c = String(p.correo || '').trim().toLowerCase(); const u = db.usuarios.find(x => x.correo === c);
-      if (!u || !u.activo) throw new Error('Este correo no está autorizado. En el demo usa admin@demo.com, gerente@demo.com, supervisor@demo.com, carlos.ruiz@gmail.com o andrea.mejia@gmail.com');
-      return { ok: true, enviado: true, codigoDemo: '123456' };
+      if (u && !u.activo) throw new Error('Tu usuario está inactivo. Comunícate con gerencia o el administrador.');
+      if (!u) {
+        if (!p.registro) throw new Error('Este correo no está registrado. Usa "Crear cuenta" para registrarte (en el demo también puedes usar gerente@demo.com, supervisor@demo.com o carlos.ruiz@gmail.com).');
+        if (String(p.registro.nombre || '').trim().split(/\s+/).length < 2) throw new Error('Escribe tu nombre y apellido');
+        db.pendientes = db.pendientes || {}; db.pendientes[c] = { nombre: p.registro.nombre.trim(), telefono: p.registro.telefono.trim() };
+      }
+      return { ok: true, enviado: true, codigoDemo: '123456', nuevo: !u };
     },
     verificarCodigo(p) {
       if (p.codigo !== '123456') throw new Error('Código incorrecto (en el demo es 123456)');
-      const u = db.usuarios.find(x => x.correo === String(p.correo).toLowerCase()); return { ok: true, token: 'demo:' + u.correo, usuario: copia(u) };
+      const c = String(p.correo).toLowerCase();
+      if (!db.usuarios.find(x => x.correo === c)) {
+        const r = (db.pendientes || {})[c]; if (!r) throw new Error('Este correo no está registrado');
+        db.usuarios.push({ correo: c, nombre: r.nombre, rol: 'comercial', activo: true, telefono: r.telefono, cargo: 'Asesor comercial', supervisor: '', creado: ahora() }); delete db.pendientes[c]; tocar();
+      }
+      const u = db.usuarios.find(x => x.correo === c); return { ok: true, token: 'demo:' + u.correo, usuario: copia(u) };
     },
     cerrarSesion() { return { ok: true }; },
     obtenerDatos(p, u) {

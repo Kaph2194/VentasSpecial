@@ -17,9 +17,13 @@
     <h1>Seguimiento comercial</h1>
     <p class="td-sub">Ingresa con tu correo electrónico personal</p>
     <form id="lg-paso1" onsubmit="pedirCodigo(event)">
+      <div class="lg-tabs"><button type="button" id="lg-tab-entrar" class="activo" onclick="modoRegistro(false)">Ingresar</button><button type="button" id="lg-tab-registro" onclick="modoRegistro(true)">Crear cuenta</button></div>
+      <div class="form-group lg-reg hidden"><label>Nombre y apellido</label><input id="lg-nombre" autocomplete="name" placeholder="Como aparecerá en las cotizaciones" /></div>
       <div class="form-group"><label>Correo electrónico</label><input type="email" id="lg-correo" autocomplete="email" placeholder="tucorreo@gmail.com" required /></div>
+      <div class="form-group lg-reg hidden"><label>Celular</label><input id="lg-tel" type="tel" autocomplete="tel" placeholder="300 123 4567" /></div>
       <button id="lg-btn1" class="btn btn-primary-dark btn-block" type="submit">Enviarme un código de acceso</button>
-      <p class="td-sub lg-ayuda">Te llegará un código de 6 dígitos a ese correo. Si tu correo no está registrado, pídele al administrador que te agregue.</p>
+      <p class="td-sub lg-ayuda" id="lg-ayuda1">Te llegará un código de 6 dígitos a ese correo. ¿Primera vez? Usa <button type="button" class="link-btn" onclick="modoRegistro(true)">Crear cuenta</button>.</p>
+      <p class="td-sub lg-ayuda lg-reg hidden">Quedarás registrado como <b>Comercial</b>. Gerencia te asignará tu supervisor o cambiará tu perfil si eres supervisor.</p>
     </form>
     <form id="lg-paso2" class="hidden" onsubmit="verificarCodigo(event)">
       <p class="lg-envio">Enviamos un código a <b id="lg-para"></b></p>
@@ -44,7 +48,7 @@
         <button class="nav-btn" id="nav-agenda" onclick="irAVista('agenda')">📅 Agenda <span class="tab-n hidden">0</span></button>
         <button class="nav-btn" id="nav-cotizaciones" onclick="irAVista('cotizaciones')">📄 Cotizaciones</button>
         <button class="nav-btn" id="nav-reportes" onclick="irAVista('reportes')">📊 Reportes</button>
-        <button class="nav-btn hidden" id="nav-usuarios" onclick="irAVista('usuarios')">👥 Usuarios</button>
+        <button class="nav-btn hidden" id="nav-usuarios" onclick="irAVista('usuarios')">👥 Usuarios <span class="tab-n hidden">0</span></button>
       </nav>
       <div class="header-actions">
         <button class="btn btn-primary" onclick="abrirFormLead()">+ Nuevo lead</button>
@@ -193,10 +197,11 @@
       <div class="dash-section dash-section-flush">
         <div class="filtros-bar filtros-bar-in">
           <h3 class="dash-title" style="margin:0">Usuarios y equipos</h3>
-          <span class="td-sub">Perfiles: Comercial · Supervisor (ve su equipo) · Gerencia y Administrador (ven todo). Solo entran los correos registrados aquí.</span>
+          <span class="td-sub">Comerciales y supervisores se registran solos con su correo y quedan como Comercial; aquí gerencia o el administrador cambian el perfil y asignan el supervisor.</span>
           <span class="ley-sep"></span>
           <button class="btn btn-sm btn-primary-dark" onclick="abrirUsuario()">+ Agregar usuario</button>
         </div>
+        <div id="us-nuevos" class="aviso-nuevos hidden"></div>
         <div class="tabla-scroll">
           <table><thead><tr><th>Nombre</th><th>Correo</th><th>Perfil</th><th>Supervisor / equipo</th><th>Teléfono</th><th>Cargo</th><th>Estado</th><th>Leads activos</th><th class="th-acc"></th></tr></thead><tbody id="tbodyUsuarios"></tbody></table>
         </div>

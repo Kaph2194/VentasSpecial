@@ -18,7 +18,7 @@ const MODO_DEMO = !/^https:\/\/script\.google(usercontent)?\.com\//.test(VENTAS_
 let EMPRESA = { nombre: 'Special Car', nit: '', direccion: '', ciudad: 'Bogotá D.C.', telefono: '', correo: '', web: '' };
 let VALIDEZ_COTIZACION = 8;
 // Versión de apps-script/Ventas.gs que espera esta página
-const VERSION_BACKEND_ESPERADA = '2026-11-18.3';
+const VERSION_BACKEND_ESPERADA = '2026-11-18.4';
 let _avisoVersion = false;
 
 // ===== CATÁLOGOS =====
@@ -139,8 +139,18 @@ async function api(accion, datos) {
 }
 
 // ===== ACCESO CON CORREO PERSONAL (código de 6 dígitos) =====
+let _registro = false;
+function modoRegistro(on) {
+  _registro = !!on;
+  document.querySelectorAll('.lg-reg').forEach(x => x.classList.toggle('hidden', !_registro));
+  $('lg-ayuda1').classList.toggle('hidden', _registro);
+  $('lg-tab-entrar').classList.toggle('activo', !_registro); $('lg-tab-registro').classList.toggle('activo', _registro);
+  $('lg-btn1').textContent = _registro ? 'Registrarme: enviarme el código' : 'Enviarme un código de acceso';
+  setTimeout(() => $(_registro ? 'lg-nombre' : 'lg-correo').focus(), 50);
+}
 function mostrarLogin() {
   $('login').classList.remove('hidden'); $('app').classList.add('hidden');
+  if (/[?&]registro\b/.test(location.search)) setTimeout(() => modoRegistro(true), 0);
   $('lg-paso1').classList.remove('hidden'); $('lg-paso2').classList.add('hidden');
   $('lg-demo').classList.toggle('hidden', !MODO_DEMO);
   try { $('lg-correo').value = localStorage.getItem('vt_ultimo_correo') || ''; } catch (e) {}
@@ -150,16 +160,23 @@ async function pedirCodigo(ev) {
   if (ev) ev.preventDefault();
   const correo = $('lg-correo').value.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) { mostrarToast('Escribe tu correo electrónico', 'error'); return; }
+  let registro = null;
+  if (_registro) {
+    registro = { nombre: $('lg-nombre').value.trim(), telefono: $('lg-tel').value.trim() };
+    if (registro.nombre.split(/\s+/).length < 2) { mostrarToast('Escribe tu nombre y apellido', 'error'); return; }
+    if (registro.telefono.replace(/\D/g, '').length < 7) { mostrarToast('Escribe tu número de celular', 'error'); return; }
+  }
   await conEspera($('lg-btn1'), async () => {
     try {
-      const r = await api('solicitarCodigo', { correo });
+      const r = await api('solicitarCodigo', { correo, registro });
       try { localStorage.setItem('vt_ultimo_correo', correo); } catch (e) {}
       $('lg-paso1').classList.add('hidden'); $('lg-paso2').classList.remove('hidden');
       $('lg-para').textContent = correo; $('lg-codigo').value = '';
       if (r.codigoDemo) { $('lg-codigo').value = r.codigoDemo; mostrarToast(`Modo demo: el código es ${r.codigoDemo}`, 'info'); }
       else mostrarToast(`Te enviamos un código a ${correo}. Revisa también la carpeta de spam.`, 'success');
+      if (_registro && r.nuevo === false) mostrarToast('Ese correo ya estaba registrado: entra con el código que te enviamos', 'info');
       setTimeout(() => $('lg-codigo').focus(), 50);
-    } catch (e) { mostrarToast(e.message, 'error'); }
+    } catch (e) { mostrarToast(e.message, 'error'); if (/no está registrado/.test(e.message) && !_registro) modoRegistro(true); }
   });
 }
 async function verificarCodigo(ev) {
@@ -252,9 +269,11 @@ function renderVista() {
   if (!S.usuario) return;
   ({ leads: renderLeads, agenda: renderAgenda, cotizaciones: renderCotizaciones, reportes: renderReportes, usuarios: renderUsuarios })[S.vista]();
   const venc = S.leads.filter(l => esActivo(l) && l.fechaSeguimiento && diasR(l.fechaSeguimiento) <= 0 ).length;
+  const nU = gestionaUsuarios() ? S.usuarios.filter(esRegistroNuevo).length : 0;
+  $('nav-usuarios').querySelector('.tab-n').textContent = nU; $('nav-usuarios').querySelector('.tab-n').classList.toggle('hidden', !nU);
   $('nav-agenda').querySelector('.tab-n').textContent = venc; $('nav-agenda').querySelector('.tab-n').classList.toggle('hidden', !venc);
 }
-function abrirDesdeHash() { const m = location.hash.match(/lead=([\w-]+)/); if (m && S.leads.some(l => l.id === m[1])) abrirFicha(m[1]); }
+function abrirDesdeHash() { if (/#usuarios/.test(location.hash) && gestionaUsuarios()) { irAVista('usuarios'); return; } const m = location.hash.match(/lead=([\w-]+)/); if (m && S.leads.some(l => l.id === m[1])) abrirFicha(m[1]); }
 
 // Listas que dependen de los datos (comerciales, marcas, referencias)
 function cargarFiltrosDinamicos() {
@@ -284,11 +303,15 @@ function cerrarModal() {
 }
 
 // ===== USUARIOS (gerencia y administrador) =====
+const esRegistroNuevo = u => u.activo && u.rol === 'comercial' && !u.supervisor && u.creado && (Date.now() - new Date(u.creado).getTime()) < 15 * 86400000;
 function renderUsuarios() {
   const orden = { admin: 0, gerencia: 1, supervisor: 2, comercial: 3 };
+  const nuevos = S.usuarios.filter(esRegistroNuevo);
+  $('us-nuevos').innerHTML = nuevos.length ? `🆕 <b>${nuevos.length} registro(s) reciente(s) sin supervisor:</b> ${nuevos.map(u => `<button class="link-btn" onclick="abrirUsuario('${esc(u.correo)}')">${esc(u.nombre)}</button>`).join(', ')}. Revisa si son supervisores (cambia el perfil) o asígnales su supervisor; desactiva a quien no pertenezca al equipo.` : '';
+  $('us-nuevos').classList.toggle('hidden', !nuevos.length);
   $('tbodyUsuarios').innerHTML = S.usuarios.slice().sort((a, b) => (b.activo - a.activo) || (orden[a.rol] - orden[b.rol]) || a.nombre.localeCompare(b.nombre)).map(u => {
     const mios = S.leads.filter(l => l.comercial === u.correo), equipo = S.usuarios.filter(x => x.supervisor === u.correo);
-    return `<tr class="${u.activo ? '' : 'fila-inactiva'}"><td><b>${esc(u.nombre)}</b></td><td>${esc(u.correo)}</td><td><span class="st ${ROL_CLS[u.rol]}">${ROLES[u.rol]}</span></td>
+    return `<tr class="${u.activo ? '' : 'fila-inactiva'} ${esRegistroNuevo(u) ? 'fila-nuevo' : ''}"><td><b>${esc(u.nombre)}</b>${esRegistroNuevo(u) ? ' <span class="st st-cotizado">Nuevo</span>' : ''}${u.creado ? `<div class="td-sub">Desde ${fmtD(String(u.creado).slice(0, 10))}</div>` : ''}</td><td>${esc(u.correo)}</td><td><span class="st ${ROL_CLS[u.rol]}">${ROLES[u.rol]}</span></td>
       <td>${u.rol === 'supervisor' ? `<span class="td-sub2">Equipo: ${equipo.length ? equipo.map(x => esc(x.nombre)).join(', ') : '<i>sin asignar</i>'}</span>` : u.rol === 'comercial' ? (u.supervisor ? esc(nombreUsuario(u.supervisor)) : '<span class="cell-n">Sin supervisor</span>') : '<span class="cell-n">Ve todo</span>'}</td>
       <td>${esc(u.telefono || '—')}</td><td>${esc(u.cargo || '—')}</td><td>${u.activo ? '<span class="txt-g">Activo</span>' : '<span class="txt-r">Inactivo</span>'}</td>
       <td style="text-align:center">${mios.filter(esActivo).length}</td><td class="td-acc">${u.rol === 'admin' && rolActual() !== 'admin' ? '' : `<button class="btn-notif" onclick="abrirUsuario('${esc(u.correo)}')">✏️ Editar</button>`}</td></tr>`;
