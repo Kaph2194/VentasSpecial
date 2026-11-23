@@ -18,11 +18,14 @@
     <p class="td-sub" id="lg-sub">Ingresa con tu cuenta de Google o con tu correo</p>
     <form id="lg-paso1" onsubmit="pedirCodigo(event)">
       <div class="lg-tabs"><button type="button" id="lg-tab-entrar" class="activo" onclick="modoRegistro(false)">Ingresar</button><button type="button" id="lg-tab-registro" onclick="modoRegistro(true)">Crear cuenta</button></div>
-      <div id="lg-google-box" class="lg-google-box hidden"><div id="lg-google"></div><div class="lg-sep"><span>o con tu correo</span></div></div>
-      <div class="form-group"><label>Correo electrónico *</label><input type="email" id="lg-correo" autocomplete="email" placeholder="tucorreo@gmail.com" required /></div>
-      <div id="lg-reg-campos" class="lg-reg hidden"></div>
-      <button id="lg-btn1" class="btn btn-primary-dark btn-block" type="submit">Enviarme un código de acceso</button>
-      <p class="td-sub lg-ayuda" id="lg-ayuda1">Te llegará un código de 6 dígitos a ese correo. ¿Primera vez? Usa <button type="button" class="link-btn" onclick="modoRegistro(true)">Crear cuenta</button>.</p>
+      <p class="lg-reg-google lg-reg hidden">Para crear tu cuenta <b>ingresa con tu cuenta de Google</b>. Después completas tus datos de contacto (celular, cédula, ciudad y, si quieres, tu foto).</p>
+      <div id="lg-google-box" class="lg-google-box hidden"><div id="lg-google"></div><div class="lg-sep lg-entrar"><span>o con tu correo</span></div></div>
+      <p id="lg-sin-google" class="lg-aviso lg-reg hidden">El registro con Google se está activando. Vuelve a intentarlo en unos minutos o pide a gerencia que te agregue.</p>
+      <div class="lg-entrar">
+        <div class="form-group"><label>Correo electrónico *</label><input type="email" id="lg-correo" autocomplete="email" placeholder="tucorreo@gmail.com" /></div>
+        <button id="lg-btn1" class="btn btn-primary-dark btn-block" type="submit">Enviarme un código de acceso</button>
+        <p class="td-sub lg-ayuda" id="lg-ayuda1">Te llegará un código de 6 dígitos a ese correo. ¿Primera vez? Usa <button type="button" class="link-btn" onclick="modoRegistro(true)">Crear cuenta</button>.</p>
+      </div>
       <p class="td-sub lg-ayuda lg-reg hidden">Quedarás registrado como <b>Comercial</b>. Gerencia te asignará tu supervisor o cambiará tu perfil si eres supervisor.</p>
     </form>
     <form id="lg-paso2" class="hidden" onsubmit="verificarCodigo(event)">
@@ -38,7 +41,7 @@
       <button id="lg-btn3" class="btn btn-primary-dark btn-block" type="submit">Terminar registro</button>
       <p class="td-sub lg-ayuda"><button type="button" class="link-btn" onclick="mostrarLogin()">← Cancelar</button></p>
     </form>
-    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code>. El botón de Google del demo simula una cuenta nueva (o usa el correo que escribas).</div>
+    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code>. Para <b>Crear cuenta</b>, el botón de Google del demo simula una cuenta nueva.</div>
   </div>
 </div>
 

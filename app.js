@@ -223,12 +223,11 @@ function quitarFoto(px) { _fotos[px] = ''; $(px + '_avatar').innerHTML = avatarH
 let _registro = false, _gRegistro = null;
 function modoRegistro(on) {
   _registro = !!on;
-  if (_registro && !$('rg_nombre')) $('lg-reg-campos').innerHTML = camposPerfil('rg', {});
+  // Crear cuenta: SOLO con la cuenta de Google (los datos de contacto se piden después, en el paso 3)
   document.querySelectorAll('.lg-reg').forEach(x => x.classList.toggle('hidden', !_registro));
-  $('lg-ayuda1').classList.toggle('hidden', _registro);
+  document.querySelectorAll('.lg-entrar').forEach(x => x.classList.toggle('hidden', _registro));
   $('lg-tab-entrar').classList.toggle('activo', !_registro); $('lg-tab-registro').classList.toggle('activo', _registro);
-  $('lg-btn1').textContent = _registro ? 'Registrarme: enviarme el código' : 'Enviarme un código de acceso';
-  $('lg-sub').textContent = _registro ? 'Regístrate con tu cuenta de Google o con tu correo' : 'Ingresa con tu cuenta de Google o con tu correo';
+  $('lg-sub').textContent = _registro ? 'Crea tu cuenta con tu cuenta de Google' : 'Ingresa con tu cuenta de Google o con tu correo';
   iniciarGoogle();
 }
 function mostrarLogin() {
@@ -242,19 +241,21 @@ function mostrarLogin() {
 function iniciarGoogle() {
   const box = $('lg-google-box'); if (!box) return;
   if (MODO_DEMO) {
-    box.classList.remove('hidden');
+    box.classList.remove('hidden'); $('lg-sin-google').classList.add('hidden');
     $('lg-google').innerHTML = `<button type="button" class="btn-google" onclick="googleDemo()"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Continuar con Google</button>`;
     return;
   }
   const id = (typeof GOOGLE_CLIENT_ID !== 'undefined' && GOOGLE_CLIENT_ID) || '';
-  if (!id || !window._gsiListo || !window.google || !google.accounts) { box.classList.add('hidden'); return; }
+  const hay = !!(id && window._gsiListo && window.google && google.accounts);
+  $('lg-sin-google').classList.toggle('hidden', !_registro || hay);
+  if (!hay) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
   if (!iniciarGoogle._ok) { google.accounts.id.initialize({ client_id: id, callback: respuestaGoogle, ux_mode: 'popup', auto_select: false }); iniciarGoogle._ok = true; }
   $('lg-google').innerHTML = '';
   google.accounts.id.renderButton($('lg-google'), { theme: 'outline', size: 'large', text: _registro ? 'signup_with' : 'continue_with', shape: 'rectangular', locale: 'es', width: 320 });
 }
 function googleDemo() {
-  const c = $('lg-correo').value.trim().toLowerCase() || 'nuevo.comercial@gmail.com';
+  const c = (!_registro && $('lg-correo').value.trim().toLowerCase()) || 'nuevo.comercial@gmail.com';
   const nombre = c.split('@')[0].split(/[._]/).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
   respuestaGoogle({ credential: 'demo.' + btoa(unescape(encodeURIComponent(JSON.stringify({ email: c, name: nombre, picture: '' })))) + '.firma' });
 }
@@ -288,8 +289,8 @@ async function pedirCodigo(ev) {
   if (ev) ev.preventDefault();
   const correo = $('lg-correo').value.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) { mostrarToast('Escribe tu correo electrónico', 'error'); return; }
-  let registro = null;
-  if (_registro) { registro = leerPerfil('rg'); const err = validarPerfil(registro); if (err) { mostrarToast(err, 'error'); return; } }
+  if (_registro) { mostrarToast('Para crear tu cuenta usa el botón de Google', 'info'); return; }
+  const registro = null;
   await conEspera($('lg-btn1'), async () => {
     try {
       const r = await api('solicitarCodigo', { correo, registro });
@@ -300,7 +301,7 @@ async function pedirCodigo(ev) {
       else mostrarToast(`Te enviamos un código a ${correo}. Revisa también la carpeta de spam.`, 'success');
       if (_registro && r.nuevo === false) mostrarToast('Ese correo ya estaba registrado: entra con el código que te enviamos', 'info');
       setTimeout(() => $('lg-codigo').focus(), 50);
-    } catch (e) { mostrarToast(e.message, 'error'); if (/no está registrado/.test(e.message) && !_registro) modoRegistro(true); }
+    } catch (e) { mostrarToast(e.message, 'error'); if (/no está registrado|Continuar con Google/.test(e.message) && !_registro) modoRegistro(true); }
   });
 }
 async function verificarCodigo(ev) {
@@ -368,7 +369,7 @@ function sincronizar(forzar) {
         if (r.empresa) EMPRESA = Object.assign({}, EMPRESA, r.empresa);
         if (r.validezCotizacion) VALIDEZ_COTIZACION = r.validezCotizacion;
         S.hoja = r.hoja || ''; S.carpeta = r.carpeta || '';
-        if (!MODO_DEMO && r.versionBackend !== VERSION_BACKEND_ESPERADA && !_avisoVersion) { _avisoVersion = true; $('banner-version').classList.remove('hidden'); }
+        if (!MODO_DEMO && String(r.versionBackend || '') < VERSION_BACKEND_ESPERADA && !_avisoVersion) { _avisoVersion = true; $('banner-version').classList.remove('hidden'); }
         cargarFiltrosDinamicos(); refrescarVista();
       }
       estadoSync(true);

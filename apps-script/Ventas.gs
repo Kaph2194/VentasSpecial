@@ -26,7 +26,7 @@
  */
 
 // Versión del backend: la app avisa si la página espera una versión distinta
-const VERSION_BACKEND = '2026-11-23.1';
+const VERSION_BACKEND = '2026-11-23.2';
 
 const CONFIG = {
   EMPRESA: {
@@ -53,6 +53,7 @@ const CONFIG = {
   // "Continuar con Google": ID de cliente OAuth (tipo Aplicación web) creado en console.cloud.google.com.
   // Debe ser el mismo que GOOGLE_CLIENT_ID en app.js. Vacío = solo ingreso con código al correo.
   GOOGLE_CLIENT_ID: '',
+  REGISTRO_SOLO_GOOGLE: true,       // con GOOGLE_CLIENT_ID configurado, las cuentas nuevas solo se crean con "Continuar con Google"
   DOMINIOS_REGISTRO: [],             // vacío = cualquier correo; p.ej. ['specialcar.com.co','gmail.com'] para restringir
   AVISAR_REGISTROS: true,            // gerencia y administradores reciben un correo con cada registro nuevo
   HORA_AGENDA: 7,                    // hora (0-23) del correo diario de agenda e informe
@@ -238,6 +239,7 @@ function solicitarCodigo_(correo, registro) {
   if (!u) {
     if (!registro) throw new Error(CONFIG.PERMITIR_REGISTRO ? 'Este correo no está registrado. Usa "Crear cuenta" para registrarte.' : 'Este correo no está autorizado. Pide al administrador que te registre en la app.');
     if (!CONFIG.PERMITIR_REGISTRO) throw new Error('El registro está desactivado. Pide al administrador que te registre.');
+    if (CONFIG.REGISTRO_SOLO_GOOGLE && CONFIG.GOOGLE_CLIENT_ID) throw new Error('Para crear tu cuenta usa el botón "Continuar con Google".');
     const dom = correo.split('@')[1];
     if (CONFIG.DOMINIOS_REGISTRO.length && CONFIG.DOMINIOS_REGISTRO.map(normCorreo_).indexOf(dom) < 0) throw new Error('Solo se pueden registrar correos de: ' + CONFIG.DOMINIOS_REGISTRO.join(', '));
     const datos = datosPerfil_(registro); nombre = datos.nombre;
