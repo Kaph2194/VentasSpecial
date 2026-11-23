@@ -9,10 +9,9 @@
 // URL del Web App (Apps Script implementado desde la cuenta dueña — ver VENTAS_SETUP.md).
 // Mientras esté vacía la app funciona en MODO DEMO: datos de ejemplo guardados en este navegador.
 const VENTAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwgbdo6VV1pcxVM1iw_9nvvOmhDAG-NxsKIvRrD1Ojl-n-QpFO0D9lKxkOJVfwuL3Y/exec';
-// DEMO_POR_DEFECTO = true: la página abre en modo demo (datos de ejemplo en el navegador) y con ?real usa el backend.
-// Cuando el equipo empiece a usarla, cambiar a false: abrirá con el backend y ?demo seguirá mostrando el demo.
-const DEMO_POR_DEFECTO = true;
-const MODO_DEMO = !/^https:\/\/script\.google(usercontent)?\.com\//.test(VENTAS_WEBAPP_URL) || /[?&]demo\b/.test(location.search) || (DEMO_POR_DEFECTO && !/[?&]real\b/.test(location.search));
+// Solo modo real: la página siempre trabaja con el backend (el demo quedó desactivado el 2026-11-23).
+const MODO_DEMO = false;
+try { Object.keys(localStorage).filter(k => /^vt_demo/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) {}
 
 // Datos de la empresa para el encabezado de las cotizaciones (el backend los reemplaza con su CONFIG.EMPRESA)
 // ID de cliente OAuth de Google para "Continuar con Google" (el mismo de CONFIG.GOOGLE_CLIENT_ID en Ventas.gs).

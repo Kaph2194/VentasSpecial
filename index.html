@@ -43,7 +43,7 @@
       <button id="lg-btn3" class="btn btn-primary-dark btn-block" type="submit">Terminar registro</button>
       <p class="td-sub lg-ayuda"><button type="button" class="link-btn" onclick="mostrarLogin()">← Cancelar</button></p>
     </form>
-    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code> (gerente@demo.com también entra con la contraseña <code>Demo2026*</code>). Para <b>Crear cuenta</b>, el botón de Google del demo simula una cuenta nueva.</div>
+    <div id="lg-demo" class="hidden"></div>
   </div>
 </div>
 
@@ -70,7 +70,7 @@
     </div>
   </header>
   <div id="banner-version" class="banner-demo banner-alerta hidden">⚠️ <b>El backend no tiene la versión más reciente.</b> Perfiles, cierre de venta e informe al CEO no funcionarán hasta actualizarlo: en script.google.com pega el <code>apps-script/Ventas.gs</code> del repositorio y publica una <b>nueva versión</b> de la implementación (Implementar → Gestionar implementaciones → ✏️ → Nueva versión).</div>
-  <div id="banner-demo" class="banner-demo hidden">🧪 <b>Modo demo:</b> datos de ejemplo guardados solo en este navegador. Para entrar con datos reales usa <a href="?real">esta dirección con ?real</a>. <button class="link-btn" onclick="if(confirm('¿Borrar los datos del demo y volver a los de ejemplo?'))DemoBackend.reiniciar()">Reiniciar demo</button></div>
+  <div id="banner-demo" class="hidden"></div>
 
   <!-- ====== LEADS ====== -->
   <div id="vista-leads" class="vista">
@@ -240,7 +240,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="app.js"></script>
-<script src="demo.js"></script>
 <script src="leads.js"></script>
 <script src="cotizaciones.js"></script>
 <script src="venta.js"></script>

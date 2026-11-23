@@ -23,9 +23,9 @@ App para el equipo comercial, construida sobre el módulo de **Cartera** de Spec
 
 ---
 
-## Prueba rápida (sin instalar nada)
+## Dirección de la app
 
-Por ahora la página publicada **abre en modo demo** (https://kaph2194.github.io/VentasSpecial/); para entrar con el backend real se agrega `?real` (https://kaph2194.github.io/VentasSpecial/?real). Cuando el equipo empiece a usarla, cambiar `DEMO_POR_DEFECTO` a `false` en `app.js`: abrirá con el backend y `?demo` seguirá mostrando el demo. El modo demo usa datos de ejemplo guardados en tu navegador. Usuarios: `gerente@demo.com` (gerencia), `supervisor@demo.com` (supervisora de Carlos), `carlos.ruiz@gmail.com`, `andrea.mejia@gmail.com` (comerciales), `admin@demo.com`. Código: `123456`.
+La app funciona **solo con datos reales**: https://kaph2194.github.io/VentasSpecial/ (el modo demo se desactivó el 23/11/2026; `?real` ya no es necesario, pero los enlaces antiguos con `?real` siguen funcionando).
 
 ---
 
@@ -70,7 +70,7 @@ Con la cuenta dueña (directortransporte@specialcar.com.co):
 Mientras no haya ID de cliente, el botón de Google no aparece y el ingreso sigue funcionando con el código al correo.
 
 ### 6. Registrar a los comerciales
-Compartir la dirección de la app con el equipo para que cada uno se registre en **Crear cuenta** (https://kaph2194.github.io/VentasSpecial/?real&registro abre directamente el registro). Todos quedan como **Comercial**. Luego, con la cuenta dueña o de gerencia, en **👥 Usuarios**: cambiar a **Supervisor** a quien corresponda y, en cada comercial, elegir su **supervisor a cargo**. También se pueden crear usuarios a mano con **+ Agregar usuario**.
+Compartir la dirección de la app con el equipo para que cada uno se registre en **Crear cuenta** (https://kaph2194.github.io/VentasSpecial/?registro abre directamente el registro). Todos quedan como **Comercial**. Luego, con la cuenta dueña o de gerencia, en **👥 Usuarios**: cambiar a **Supervisor** a quien corresponda y, en cada comercial, elegir su **supervisor a cargo**. También se pueden crear usuarios a mano con **+ Agregar usuario**.
 
 ---
 
@@ -114,5 +114,5 @@ Logos en `img/`: `logo-blanco.png` (transparente, para la cabecera y el PDF), `l
 | `venta.js` | Cierre de venta: comparación con la cotización, rentabilidad, membresía, administración y documentos. |
 | `cotizaciones.js` | Formulario, cálculo de crédito, PDF, carga de archivos, compartir y enviar. |
 | `reportes.js` | Reportes, Excel e informe imprimible. |
-| `demo.js` | Modo demo (sin backend). |
+| `demo.js` | Modo demo antiguo (ya no se carga en la página; se conserva para pruebas locales). |
 | `apps-script/Ventas.gs`, `apps-script/appsscript.json` | Backend (Sheets + Calendar + Drive + Gmail). |
