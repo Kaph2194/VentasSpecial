@@ -31,12 +31,12 @@ const VERSION_BACKEND = '2026-11-23.1';
 const CONFIG = {
   EMPRESA: {
     nombre: 'Special Car',
-    nit: '',
-    direccion: '',
+    nit: '901.252.081',
+    direccion: 'Cra 45 # 144-21 Bogotá',
     ciudad: 'Bogotá D.C.',
     telefono: '',
     correo: '',
-    web: ''
+    web: 'www.specialcar.com.co'
   },
   NOMBRE_REMITENTE: 'Ventas - Special Car',
   ZONA: 'America/Bogota',
