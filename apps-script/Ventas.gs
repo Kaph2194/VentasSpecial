@@ -26,7 +26,7 @@
  */
 
 // Versión del backend: la app avisa si la página espera una versión distinta
-const VERSION_BACKEND = '2026-11-18.6';
+const VERSION_BACKEND = '2026-11-23.1';
 
 const CONFIG = {
   EMPRESA: {
@@ -66,12 +66,20 @@ const CONFIG = {
 
 // ===================== CATÁLOGOS (mismos que ventas.js) =====================
 const ESTADOS_ = [
-  ['nuevo', 'Nuevo'], ['contactado', 'Contactado'], ['cita', 'Cita / visita agendada'], ['prueba', 'Prueba de manejo'],
+  ['nuevo', 'Nuevo'], ['contactado', 'Contactado'], ['cita', 'Cita / visita agendada'],
   ['cotizado', 'Cotizado'], ['negociacion', 'Negociación'], ['credito', 'Crédito en estudio'], ['aprobado', 'Aprobado / separado'],
   ['facturado', 'Facturado'], ['entregado', 'Entregado'], ['perdido', 'Perdido']
 ];
 const ESTADO_TXT_ = {}; ESTADOS_.forEach(e => ESTADO_TXT_[e[0]] = e[1]);
 const ORDEN_ESTADO_ = {}; ESTADOS_.forEach((e, i) => ORDEN_ESTADO_[e[0]] = i);
+// "Prueba de manejo" dejó de ser un estado: los leads antiguos se leen como "Cita / visita" (el historial conserva el nombre)
+ESTADO_TXT_.prueba = 'Prueba de manejo'; ORDEN_ESTADO_.prueba = ORDEN_ESTADO_.cita;
+// Volver a un estado anterior (o reabrir un perdido) solo lo hace supervisor, gerencia o admin, con justificación
+function esRetroceso_(de, a) {
+  if (!de || de === a || a === 'perdido') return false;
+  if (de === 'perdido') return true;
+  return (ORDEN_ESTADO_[a] || 0) < (ORDEN_ESTADO_[de] || 0);
+}
 const FINALES_ = ['entregado', 'perdido'];
 const GANADOS_ = ['facturado', 'entregado'];
 const esActivo_ = l => FINALES_.indexOf(l.estado) < 0;
@@ -404,7 +412,7 @@ function leerLeads_() {
   const n = h.getLastRow() - 1;
   if (n < 1) return [];
   return h.getRange(2, ENC_LEADS.length, n, 1).getValues().map((f, i) => {
-    try { const o = JSON.parse(f[0]); o._fila = i + 2; return o; } catch (e) { return null; }
+    try { const o = JSON.parse(f[0]); o._fila = i + 2; if (o.estado === 'prueba') o.estado = 'cita'; return o; } catch (e) { return null; }
   }).filter(Boolean);
 }
 function puedeVer_(u, lead, alc) { if (alc === undefined) alc = alcance_(u); return !alc || !!alc[normCorreo_(lead.comercial)]; }
@@ -421,7 +429,10 @@ function guardarLead_(u, lead) {
   if (!lead) throw new Error('Lead inválido');
   if (!String(lead.prospecto || '').trim()) throw new Error('El nombre del prospecto es obligatorio');
   if (!String(lead.telefono || '').trim()) throw new Error('El teléfono es obligatorio');
-  if (!ESTADO_TXT_[lead.estado]) lead.estado = 'nuevo';
+  if (lead.estado === 'prueba' || !ESTADO_TXT_[lead.estado]) lead.estado = lead.estado === 'prueba' ? 'cita' : 'nuevo';
+  // # Lead: lo escribe el usuario (viene de la app de origen: KOMMO, campaña, formulario…); si llega vacío se asigna un consecutivo
+  const esNuevo = !!lead.nuevo || !lead.id; delete lead.nuevo;
+  if (lead.id) { lead.id = String(lead.id).replace(/\s+/g, ''); if (!/^[A-Za-z0-9#._-]{1,30}$/.test(lead.id)) throw new Error('El # del lead solo admite letras, números y . _ - #'); }
   if (lead.estado === 'perdido' && !String(lead.motivoPerdida || '').trim()) throw new Error('Indica el motivo por el que se perdió el lead');
   const usuarios = leerUsuarios_();
   const lock = LockService.getScriptLock(); lock.waitLock(30000);
@@ -429,7 +440,9 @@ function guardarLead_(u, lead) {
   try {
     const todos = leerLeads_();
     const alc = alcance_(u, usuarios);
-    const previo = lead.id ? todos.filter(x => x.id === lead.id)[0] || null : null;
+    if (esNuevo && lead.id) { const ya = todos.filter(x => String(x.id).toLowerCase() === lead.id.toLowerCase())[0]; if (ya) throw new Error('Ya existe el lead #' + ya.id + ' (' + ya.prospecto + ')'); }
+    const previo = esNuevo ? null : todos.filter(x => x.id === lead.id)[0] || null;
+    if (!esNuevo && !previo) throw new Error('No existe el lead #' + lead.id);
     const ahora = new Date().toISOString();
     if (previo) {
       if (!puedeVer_(u, previo, alc)) throw new Error('Este lead pertenece a otro comercial');
@@ -439,7 +452,7 @@ function guardarLead_(u, lead) {
       lead.creado = previo.creado; lead.creadoPor = previo.creadoPor; lead.eventId = previo.eventId; lead.eventoInvitado = previo.eventoInvitado;
       lead.venta = previo.venta;   // el cierre de venta solo se cambia con guardarVenta
     } else {
-      lead.id = 'L-' + pad_(siguiente_('LEAD'), 4);
+      if (!lead.id) lead.id = 'L-' + pad_(siguiente_('LEAD'), 4);
       lead.creado = ahora; lead.creadoPor = u.correo;
       if (u.rol === 'comercial' || !lead.comercial) lead.comercial = u.correo;
       lead.historial = lead.historial || [];
@@ -450,6 +463,17 @@ function guardarLead_(u, lead) {
     const com = usuarios.filter(x => x.correo === lead.comercial)[0];
     if (!com) throw new Error('El comercial asignado no está registrado: ' + lead.comercial);
     lead.nombreComercial = com.nombre;
+    // retrocesos: el asesor no puede; supervisor/gerencia/admin con justificación (queda en el historial)
+    const just = String(lead.justificacionRetroceso || '').trim(); delete lead.justificacionRetroceso;
+    if (previo && esRetroceso_(previo.estado, lead.estado)) {
+      if (u.rol === 'comercial') throw new Error('No puedes devolver el lead a "' + ESTADO_TXT_[lead.estado] + '": solo el supervisor o gerencia pueden hacerlo, con una justificación');
+      if (just.length < 10) throw new Error('Escribe la justificación para volver a un estado anterior (mínimo 10 caracteres)');
+      const idsPrev = {}; (previo.historial || []).forEach(x => idsPrev[x.id] = true);
+      const h = (lead.historial || []).filter(x => !idsPrev[x.id] && x.a === lead.estado).slice(-1)[0];
+      const marca = '↩ Retroceso autorizado: ' + just;
+      if (h) { if (String(h.nota || '').indexOf('Retroceso autorizado') < 0) h.nota = marca + (h.nota ? ' · ' + h.nota : ''); h.usuario = u.correo; }
+      else lead.historial.push({ id: 'H-' + Utilities.getUuid().slice(0, 8), fecha: ahora, de: previo.estado, a: lead.estado, nota: marca, usuario: u.correo });
+    }
     // si cambió el estado y el navegador no dejó el registro en el historial, se agrega aquí
     if (previo && previo.estado !== lead.estado && !(lead.historial || []).some(x => x.a === lead.estado && String(x.fecha) >= String(previo.actualizado || ''))) {
       lead.historial.push({ id: 'H-' + Utilities.getUuid().slice(0, 8), fecha: ahora, de: previo.estado, a: lead.estado, nota: '', usuario: u.correo });
@@ -750,6 +774,7 @@ function guardarVenta_(u, p) {
     l.venta.calculo = calcVenta_(l.venta);
     if (cot && cot.estado !== 'aceptada') { cot.estado = 'aceptada'; cot.actualizado = ahora; escribirCotizacion_(cot, cot._fila); }
     const nuevo = p.estado && GANADOS_.indexOf(p.estado) >= 0 ? p.estado : null;
+    if (nuevo && esRetroceso_(l.estado, nuevo) && u.rol === 'comercial') throw new Error('No puedes reabrir este lead: solo el supervisor o gerencia pueden hacerlo');
     if (nuevo === 'entregado') { const f = docsFaltantes_(l.venta); if (f.length) throw new Error('Para finalizar como Entregado faltan documentos: ' + f.join(', ')); }
     if (nuevo && nuevo !== l.estado) {
       const c = l.venta.calculo;

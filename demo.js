@@ -4,7 +4,7 @@
 // esté vacía. Para empezar de cero: DemoBackend.reiniciar().
 // =====================================================================
 const DemoBackend = (() => {
-  const CLAVE = 'vt_demo_v5';
+  const CLAVE = 'vt_demo_v6';
   let db = null;
   const ahora = () => new Date().toISOString();
   const rid = p => p + '-' + Math.random().toString(36).slice(2, 10);
@@ -22,29 +22,29 @@ const DemoBackend = (() => {
       { correo: 'andrea.mejia@gmail.com', nombre: 'Andrea Mejía', rol: 'comercial', activo: true, telefono: '312 555 0303', cargo: 'Asesora comercial', supervisor: '' }
     ];
     const ej = [
-      ['Juan Pablo Torres', '3104567890', 'Mazda', 'CX-30', 'Grand Touring 2026', 'Página web', 'cotizado', 1, '10:00', 'carlos.ruiz@gmail.com', -12, 138900000, 'Crédito'],
-      ['María Fernanda López', '3157778899', 'Kia', 'Sportage', 'Vibrant 2026', 'Vitrina / showroom', 'prueba', 0, '15:30', 'andrea.mejia@gmail.com', -6, 152000000, 'Retoma + crédito'],
-      ['Andrés Felipe Rojas', '3001234567', 'Toyota', 'Corolla Cross', 'XEI Híbrida 2026', 'Facebook / Instagram', 'contactado', -2, '', 'carlos.ruiz@gmail.com', -9, 149900000, 'Crédito'],
+      ['Juan Pablo Torres', '3104567890', 'Mazda', 'CX-30', 'Grand Touring 2026', 'Formulario', 'cotizado', 1, '10:00', 'carlos.ruiz@gmail.com', -12, 138900000, 'Crédito'],
+      ['María Fernanda López', '3157778899', 'Kia', 'Sportage', 'Vibrant 2026', 'Campaña', 'cita', 0, '15:30', 'andrea.mejia@gmail.com', -6, 152000000, 'Retoma + crédito'],
+      ['Andrés Felipe Rojas', '3001234567', 'Toyota', 'Corolla Cross', 'XEI Híbrida 2026', 'Instagram', 'contactado', -2, '', 'carlos.ruiz@gmail.com', -9, 149900000, 'Crédito'],
       ['Luisa Martínez', '3209876543', 'Renault', 'Duster', 'Intens 2026', 'WhatsApp', 'nuevo', 0, '11:00', 'andrea.mejia@gmail.com', -1, 99990000, 'Por definir'],
       ['Camilo Herrera', '3015556677', 'Chevrolet', 'Tracker', 'Premier 2026', 'Referido', 'negociacion', 2, '09:30', 'carlos.ruiz@gmail.com', -20, 118000000, 'Contado'],
-      ['Diana Patricia Castro', '3118889900', 'BYD', 'Dolphin Mini', '2026', 'Página web', 'credito', 3, '', 'andrea.mejia@gmail.com', -18, 79990000, 'Crédito'],
+      ['Diana Patricia Castro', '3118889900', 'BYD', 'Dolphin Mini', '2026', 'KOMMO', 'credito', 3, '', 'andrea.mejia@gmail.com', -18, 79990000, 'Crédito'],
       ['Sebastián Moreno', '3162223344', 'Mazda', '2 Sedán', 'Touring 2026', 'Llamada entrante', 'aprobado', 1, '16:00', 'carlos.ruiz@gmail.com', -25, 94900000, 'Crédito'],
       ['Natalia Vargas', '3184445566', 'Volkswagen', 'T-Cross', 'Highline 2026', 'Vitrina / showroom', 'facturado', 4, '', 'andrea.mejia@gmail.com', -30, 129990000, 'Contado'],
       ['Jorge Iván Ramírez', '3006667788', 'Nissan', 'Kicks', 'Exclusive 2026', 'TuCarro / Marketplace', 'entregado', null, '', 'carlos.ruiz@gmail.com', -45, 112000000, 'Crédito'],
-      ['Paola Andrea Gil', '3129990011', 'Hyundai', 'Tucson', 'Limited 2026', 'Facebook / Instagram', 'perdido', null, '', 'andrea.mejia@gmail.com', -28, 165000000, 'Crédito'],
+      ['Paola Andrea Gil', '3129990011', 'Hyundai', 'Tucson', 'Limited 2026', 'Campaña', 'perdido', null, '', 'andrea.mejia@gmail.com', -28, 165000000, 'Crédito'],
       ['Ricardo Salazar', '3193334455', 'Suzuki', 'Swift', 'Hybrid 2026', 'Feria / evento', 'cita', -1, '10:30', 'supervisor@demo.com', -4, 78900000, 'Retoma + contado'],
       ['Valentina Ospina', '3141112233', 'Kia', 'Picanto', 'Zenith 2026', 'TikTok', 'contactado', 5, '', 'andrea.mejia@gmail.com', -3, 66990000, 'Crédito'],
       ['Hernán Darío Pérez', '3027778811', 'Toyota', 'Hilux', 'SRV 4x4 2026', 'Cliente antiguo', 'entregado', null, '', 'andrea.mejia@gmail.com', -60, 219900000, 'Leasing'],
-      ['Carolina Ríos', '3175553311', 'Chevrolet', 'Onix', 'Turbo RS 2026', 'Página web', 'perdido', null, '', 'carlos.ruiz@gmail.com', -15, 82990000, 'Crédito']
+      ['Carolina Ríos', '3175553311', 'Chevrolet', 'Onix', 'Turbo RS 2026', 'WhatsApp', 'perdido', null, '', 'carlos.ruiz@gmail.com', -15, 82990000, 'Crédito']
     ];
-    const ciudades = ['Bogotá', 'Bogotá', 'Chía', 'Bogotá', 'Soacha'];
+    const ciudades = ['Bogotá D.C.', 'Bogotá D.C.', 'Chía', 'Bogotá D.C.', 'Soacha'];
     U.forEach((u, i) => Object.assign(u, { documento: String(1010200300 + i * 1111), ciudad: ciudades[i], direccion: '', contactoEmergencia: '', telEmergencia: '', foto: '', creado: ts(-40, 9), origen: 'manual' }));
     const leads = [], cots = []; let nCot = 0;
-    const camino = ['nuevo', 'contactado', 'cita', 'prueba', 'cotizado', 'negociacion', 'credito', 'aprobado', 'facturado', 'entregado'];
+    const camino = ['nuevo', 'contactado', 'cita', 'cotizado', 'negociacion', 'credito', 'aprobado', 'facturado', 'entregado'];
     ej.forEach((x, i) => {
       const [prospecto, telefono, marca, referencia, version, origen, estado, seg, hora, comercial, contacto, valor, pago] = x;
-      const id = 'L-' + String(i + 1).padStart(4, '0');
-      const l = { id, fechaContacto: d(contacto), prospecto, telefono, correo: prospecto.split(' ')[0].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + '.' + (i + 1) + '@correo.com', documento: String(52000000 + i * 734521), ciudad: ['Bogotá', 'Medellín', 'Cali', 'Chía'][i % 4],
+      const id = String(23841 + i * 13);   // # que trae el lead desde la app de origen (KOMMO, campaña…)
+      const l = { id, fechaContacto: d(contacto), prospecto, telefono, correo: prospecto.split(' ')[0].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + '.' + (i + 1) + '@correo.com', documento: String(52000000 + i * 734521), ciudad: ['Bogotá D.C.', 'Medellín', 'Cali', 'Chía'][i % 4],
         marca, referencia, version, origen, estado, fechaSeguimiento: seg === null ? '' : d(seg), horaSeguimiento: hora, comercial, valorEstimado: valor, formaPago: pago, retoma: /Retoma/.test(pago) ? 'Chevrolet Spark GT 2017' : '',
         observaciones: i % 3 === 0 ? 'Le interesa color gris; decide con la esposa.' : '', historial: [], seguimientos: [], creado: ts(contacto, 9), creadoPor: comercial };
       l.historial.push({ id: rid('H'), fecha: ts(contacto, 9), de: '', a: 'nuevo', nota: 'Lead creado', usuario: comercial });
@@ -84,6 +84,7 @@ const DemoBackend = (() => {
     if (db) return db;
     try { db = JSON.parse(localStorage.getItem(CLAVE) || 'null'); } catch (e) { db = null; }
     if (!db) { db = semilla(); guardar(); }
+    db.leads.forEach(l => { if (l.estado === 'prueba') l.estado = 'cita'; });
     return db;
   }
   const usuarioDe = token => { const c = String(token || '').replace(/^demo:/, ''); const u = db.usuarios.find(x => x.correo === c); return u && u.activo ? u : null; };
@@ -143,14 +144,22 @@ const DemoBackend = (() => {
       const lead = copia(p.lead);
       if (!String(lead.prospecto || '').trim()) throw new Error('El nombre del prospecto es obligatorio');
       if (lead.estado === 'perdido' && !lead.motivoPerdida) throw new Error('Indica el motivo por el que se perdió el lead');
-      const previo = lead.id ? db.leads.find(x => x.id === lead.id) : null;
+      if (lead.estado === 'prueba') lead.estado = 'cita';
+      const esNuevo = !!lead.nuevo || !lead.id; delete lead.nuevo;
+      if (esNuevo && lead.id && db.leads.some(x => String(x.id).toLowerCase() === String(lead.id).toLowerCase())) throw new Error('Ya existe el lead #' + lead.id);
+      const previo = esNuevo ? null : db.leads.find(x => x.id === lead.id);
+      const just = String(lead.justificacionRetroceso || '').trim(); delete lead.justificacionRetroceso;
+      if (previo && esRetroceso(previo.estado, lead.estado)) {
+        if (u.rol === 'comercial') throw new Error('No puedes devolver el lead a "' + EST[lead.estado].t + '": solo el supervisor o gerencia pueden hacerlo, con una justificación');
+        if (just.length < 10) throw new Error('Escribe la justificación para volver a un estado anterior (mínimo 10 caracteres)');
+      }
       if (previo) {
         if (!puedeVer(u, previo)) throw new Error('Este lead pertenece a otro comercial');
         if (u.rol === 'comercial') lead.comercial = previo.comercial;
         lead.historial = unir(previo.historial, lead.historial); lead.seguimientos = unir(previo.seguimientos, lead.seguimientos);
         lead.creado = previo.creado; lead.creadoPor = previo.creadoPor;
       } else {
-        db.seq.LEAD++; lead.id = 'L-' + String(db.seq.LEAD).padStart(4, '0'); lead.creado = ahora(); lead.creadoPor = u.correo;
+        if (!lead.id) { db.seq.LEAD++; lead.id = 'L-' + String(db.seq.LEAD).padStart(4, '0'); } lead.creado = ahora(); lead.creadoPor = u.correo;
         if (u.rol === 'comercial' || !lead.comercial) lead.comercial = u.correo;
         lead.historial = lead.historial && lead.historial.length ? lead.historial : [{ id: rid('H'), fecha: ahora(), de: '', a: lead.estado, nota: 'Lead creado', usuario: u.correo }];
       }
@@ -189,6 +198,7 @@ const DemoBackend = (() => {
     },
     guardarVenta(p, u) {
       const l = db.leads.find(x => x.id === p.leadId); if (!l || !puedeVer(u, l)) throw new Error('No tienes acceso a este lead');
+      if (p.estado && esRetroceso(l.estado, p.estado) && u.rol === 'comercial') throw new Error('No puedes reabrir este lead: solo el supervisor o gerencia pueden hacerlo');
       const e = p.venta || {}; if (!(e.valorVenta > 0)) throw new Error('Indica el valor real de la venta'); if (!(e.valorNeto > 0)) throw new Error('Indica el valor neto del vehículo');
       const cot = db.cotizaciones.find(c => c.id === e.cotizacionId && c.leadId === l.id);
       l.venta = Object.assign({}, e, { valorCotizado: cot ? cot.total : 0, documentos: (l.venta || {}).documentos || {}, registradoPor: (l.venta || {}).registradoPor || u.correo, actualizado: ahora() });

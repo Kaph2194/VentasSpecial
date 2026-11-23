@@ -94,7 +94,7 @@ function renderTablaLeads() {
       <td>${badgeSeguimiento(l)}</td>
       <td><b>${esc(l.marca || '—')}</b></td>
       <td class="td-ref" title="${esc([l.referencia, l.version].filter(Boolean).join(' '))}">${esc(l.referencia || '—')}${l.version ? `<div class="td-sub">${esc(l.version)}</div>` : ''}</td>
-      <td><select class="sel-st ${EST[l.estado].c}" onchange="cambiarEstadoRapido('${esc(l.id)}',this)">${ESTADOS.map(e => `<option value="${e.k}" ${e.k === l.estado ? 'selected' : ''}>${esc(e.t)}</option>`).join('')}</select></td>
+      <td><select class="sel-st ${EST[l.estado].c}" onchange="cambiarEstadoRapido('${esc(l.id)}',this)">${ESTADOS.map(e => `<option value="${e.k}" ${e.k === l.estado ? 'selected' : ''} ${!puedeRetroceder() && esRetroceso(l.estado, e.k) ? 'disabled' : ''}>${esc(e.t)}</option>`).join('')}</select></td>
       <td class="${esAdmin() ? '' : 'hidden'} td-sub2">${esc(nombreUsuario(l.comercial))}</td>
       <td style="text-align:center">${nc ? `<button class="link-btn" onclick="abrirFicha('${esc(l.id)}','cotizaciones')">${nc}</button>` : '<span class="cell-n">0</span>'}</td>
       <td class="td-gestion" onclick="abrirFicha('${esc(l.id)}','gestion')">${u ? `<span class="res-tag ${CLASE_RES(u.resultado)}">${esc(u.resultado)}</span><div class="td-sub">${fmtFH(u.fecha)} · ${esc(u.medio || '')}</div>` : '<span class="cell-n">Sin gestión</span>'}</td>
@@ -107,17 +107,16 @@ function renderTablaLeads() {
 
 // ===== TABLERO (kanban): arrastrar una tarjeta cambia el estado =====
 function renderTablero() {
-  // 10 columnas fijas (Nuevo → Entregado) en 2 filas de 5. Entregados: últimos 30 días. Perdidos: enlace aparte.
+  // 10 columnas en 2 filas de 5: Nuevo → Entregado + Perdido. Entregados y perdidos: últimos 30 días.
   const hace30 = sumarDias(hoyISO(), -30);
   const base = filtrarLeads(true);
-  const lista = base.filter(l => l.estado !== 'perdido' && (l.estado !== 'entregado' || String(l.fechaCierre || l.fechaVenta || '') >= hace30));
-  const perdidos = base.filter(l => l.estado === 'perdido' && String(l.fechaCierre || '') >= hace30).length;
-  const cols = ESTADOS.filter(e => e.k !== 'perdido');
+  const lista = base.filter(l => esActivo(l) || String(l.fechaCierre || l.fechaVenta || l.actualizado || '').slice(0, 10) >= hace30);
+  const cols = ESTADOS;
   $('l-count').textContent = `${lista.filter(esActivo).length} activo(s)`;
-  $('leads-tablero').innerHTML = `<div class="kb-leyenda"><span><i class="kb-dot kb-venc"></i>Seguimiento vencido</span><span><i class="kb-dot kb-hoy"></i>Para hoy</span><span><i class="kb-dot kb-sin"></i>Sin fecha</span><span class="td-sub">Clic en el nombre para gestionar · arrastra la tarjeta para cambiar de estado</span><span class="kb-perdidos"><button class="link-btn" onclick="verPerdidos()">✖ Perdidos últimos 30 días: ${perdidos}</button></span></div><div class="kb-cols">` + cols.map(e => {
+  $('leads-tablero').innerHTML = `<div class="kb-leyenda"><span><i class="kb-dot kb-venc"></i>Seguimiento vencido</span><span><i class="kb-dot kb-hoy"></i>Para hoy</span><span><i class="kb-dot kb-sin"></i>Sin fecha</span><span class="td-sub">Clic en el nombre para gestionar · arrastra la tarjeta para cambiar de estado</span><span class="kb-perdidos"><button class="link-btn" onclick="verPerdidos()">Ver todos los perdidos</button></span></div><div class="kb-cols">` + cols.map(e => {
     const items = lista.filter(l => l.estado === e.k).sort((a, b) => valorOrden(a, 'fechaSeguimiento').localeCompare(valorOrden(b, 'fechaSeguimiento')));
     return `<div class="kb-col" data-estado="${e.k}" ondragover="event.preventDefault();this.classList.add('kb-over')" ondragleave="this.classList.remove('kb-over')" ondrop="soltarEnColumna(event,'${e.k}')">
-      <div class="kb-tit"><span class="st ${e.c}">${esc(e.t)}</span><b>${items.length}</b></div>${e.k === 'entregado' ? '<div class="td-sub kb-nota">Últimos 30 días</div>' : ''}
+      <div class="kb-tit"><span class="st ${e.c}">${esc(e.t)}</span><b>${items.length}</b></div>${FINALES.includes(e.k) ? '<div class="td-sub kb-nota">Últimos 30 días</div>' : ''}
       <div class="kb-items">${items.map(l => { const d = esActivo(l) && l.fechaSeguimiento ? diasR(l.fechaSeguimiento) : null;
         const cls = !esActivo(l) ? '' : !l.fechaSeguimiento ? 'kb-sin' : d < 0 ? 'kb-venc' : d === 0 ? 'kb-hoy' : '';
         const tip = `${l.id} · ${[l.marca, l.referencia].filter(Boolean).join(' ')}${veEquipo() ? ' · ' + nombreUsuario(l.comercial) : ''}${l.fechaSeguimiento && esActivo(l) ? ' · seguimiento ' + fmtD(l.fechaSeguimiento) : ''}`;
@@ -140,11 +139,15 @@ function cambiarEstadoRapido(id, sel) {
 // Pide nota (y motivo si es "Perdido") antes de cambiar el estado
 function pedirCambioEstado(id, nuevo) {
   const l = S.leads.find(x => x.id === id); if (!l || l.estado === nuevo) return;
+  const atras = esRetroceso(l.estado, nuevo);
+  if (atras && !puedeRetroceder()) { mostrarToast(`No puedes devolver el lead a “${EST[nuevo].t}”: solo el supervisor o gerencia pueden hacerlo, con una justificación.`, 'error'); return; }
   // la venta pide el cierre: valor real, valor neto, membresía, meses de administración y documentos
-  if (nuevo === 'facturado' || (nuevo === 'entregado' && (!l.venta || docsFaltantes(l.venta).length))) { abrirCierreVenta(id, nuevo); return; }
+  if ((!atras || !l.venta) && (nuevo === 'facturado' || (nuevo === 'entregado' && (!l.venta || docsFaltantes(l.venta).length)))) { abrirCierreVenta(id, nuevo); return; }
   const e = EST[nuevo], fin = FINALES.includes(nuevo);
   abrirModal(`Cambiar estado — ${esc(l.id)} · ${esc(l.prospecto)}`, `
-    <div class="cambio-est">${badgeEstado(l.estado)} <span>→</span> ${badgeEstado(nuevo)}</div>
+    <div class="cambio-est">${badgeEstado(l.estado)} <span>${atras ? '↩' : '→'}</span> ${badgeEstado(nuevo)}</div>
+    ${atras ? `<div class="aviso-retroceso">↩ <b>${l.estado === 'perdido' ? 'Reabrir un lead perdido' : 'Volver a un estado anterior'}</b>: queda registrado en el historial con tu nombre y la justificación.</div>
+      <div class="form-group" style="margin-top:12px"><label>Justificación *</label><textarea id="ce_just" rows="2" placeholder="Ej: el banco negó el crédito y el cliente volvió a negociar otra referencia"></textarea></div>` : ''}
     ${nuevo === 'perdido' ? `<div class="form-group" style="margin-top:14px"><label>Motivo de pérdida *</label><select id="ce_motivo"><option value="">— Selecciona —</option>${MOTIVOS_PERDIDA.map(m => `<option ${l.motivoPerdida === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></div>` : ''}
     <div class="form-group" style="margin-top:14px"><label>Nota (opcional)</label><textarea id="ce_nota" rows="2" placeholder="${nuevo === 'perdido' ? 'Ej: compró un Kia Sportage en otro concesionario' : nuevo === 'facturado' ? 'Ej: factura FV-1234, entrega programada' : 'Detalle del avance'}"></textarea></div>
     ${!fin ? `<div class="form-grid" style="margin-top:12px"><div class="form-group"><label>Próximo seguimiento</label><input type="date" id="ce_fecha" value="${esc(l.fechaSeguimiento && diasR(l.fechaSeguimiento) >= 0 ? l.fechaSeguimiento : sumarDias(hoyISO(), 2))}"/></div>
@@ -158,8 +161,11 @@ async function confirmarCambioEstado(id, nuevo, btn) {
   const nota = ($('ce_nota') || {}).value || '';
   if (nuevo === 'perdido') { const m = $('ce_motivo').value; if (!m) { mostrarToast('Selecciona el motivo de pérdida', 'error'); return; } l.motivoPerdida = m; }
   else delete l.motivoPerdida;
+  const atras = esRetroceso(orig.estado, nuevo), just = (($('ce_just') || {}).value || '').trim();
+  if (atras && just.length < 10) { mostrarToast('Escribe la justificación (mínimo 10 caracteres)', 'error'); return; }
+  if (atras) l.justificacionRetroceso = just;
   if ($('ce_fecha')) { l.fechaSeguimiento = $('ce_fecha').value || ''; l.horaSeguimiento = $('ce_hora').value || ''; }
-  l.historial = (l.historial || []).concat([{ id: uid('H'), fecha: ahoraISO(), de: l.estado, a: nuevo, nota: nota.trim() + (nuevo === 'perdido' ? (nota.trim() ? ' · ' : '') + 'Motivo: ' + l.motivoPerdida : ''), usuario: S.usuario.correo }]);
+  l.historial = (l.historial || []).concat([{ id: uid('H'), fecha: ahoraISO(), de: l.estado, a: nuevo, nota: (atras ? '↩ Retroceso autorizado: ' + just + (nota.trim() ? ' · ' : '') : '') + nota.trim() + (nuevo === 'perdido' ? (nota.trim() ? ' · ' : '') + 'Motivo: ' + l.motivoPerdida : ''), usuario: S.usuario.correo }]);
   l.estado = nuevo;
   await conEspera(btn, async () => {
     try { await guardarLeadRemoto(l); cerrarModal(); mostrarToast(`${l.id}: ${EST[nuevo].t}`, 'success'); if (nuevo === 'facturado') sugerirSiguiente(l.id); }
@@ -177,14 +183,14 @@ function abrirFormLead(id) {
     <input type="hidden" id="lf_id" value="${esc(l.id || '')}"/>
     <div class="form-sect">Prospecto</div>
     <div class="form-grid form-grid-3">
-      <div class="form-group"><label># Lead</label><input value="${esc(l.id || 'Se asigna al guardar')}" disabled/></div>
+      <div class="form-group"><label># Lead *</label><input id="lf_numero" value="${esc(l.id || '')}" ${id ? 'disabled title="El número del lead no se cambia después de creado"' : ''} placeholder="Número en la app de origen" maxlength="30" autocomplete="off"/></div>
       <div class="form-group span-2"><label>Nombre del prospecto *</label><input id="lf_prospecto" value="${esc(l.prospecto || '')}" placeholder="Nombre y apellido"/></div>
       <div class="form-group"><label>Teléfono / celular *</label><input id="lf_tel" type="tel" value="${esc(l.telefono || '')}" placeholder="300 123 4567"/></div>
       <div class="form-group"><label>Correo</label><input id="lf_correo" type="email" value="${esc(l.correo || '')}"/></div>
       <div class="form-group"><label>Cédula / NIT</label><input id="lf_doc" value="${esc(l.documento || '')}"/></div>
-      <div class="form-group"><label>Ciudad</label><input id="lf_ciudad" value="${esc(l.ciudad || '')}"/></div>
+      <div class="form-group"><label>Ciudad</label>${htmlCiudad('lf_ciudad', l.ciudad)}</div>
       <div class="form-group"><label>Fecha de contacto *</label><input id="lf_fcontacto" type="date" value="${esc(l.fechaContacto || hoyISO())}"/></div>
-      <div class="form-group"><label>Origen del lead</label><select id="lf_origen"><option value="">— Selecciona —</option>${ORIGENES.map(o => `<option ${l.origen === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Origen del lead</label><select id="lf_origen"><option value="">— Selecciona —</option>${(l.origen && !ORIGENES.includes(l.origen) ? [l.origen] : []).concat(ORIGENES).map(o => `<option ${l.origen === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
     </div>
     <div class="form-sect">Vehículo de interés</div>
     <div class="form-grid form-grid-3">
@@ -206,7 +212,7 @@ function abrirFormLead(id) {
     <p class="nota-cal">📅 La fecha de seguimiento se agenda en ${veEquipo() ? 'el calendario del comercial asignado' : 'tu calendario'} (invitación a ${esc(esAdmin() ? 'su' : 'tu')} correo) con recordatorio.${MODO_DEMO ? ' <b>En modo demo</b> usa el botón 📅 de la agenda para agregarlo.' : ''}</p>`,
     `<button class="btn btn-primary-dark" onclick="guardarFormLead(this)">💾 ${id ? 'Guardar cambios' : 'Crear lead'}</button>`);
   actualizarDlReferencias('lf_marca', 'dl-refs');
-  if (!id) setTimeout(() => { const ae = document.activeElement; if (!ae || !ae.closest('#modal') || ae.tagName === 'BUTTON') $('lf_prospecto').focus(); }, 60);
+  if (!id) setTimeout(() => { const ae = document.activeElement; if (!ae || !ae.closest('#modal') || ae.tagName === 'BUTTON') $('lf_numero').focus(); }, 60);
 }
 function actualizarDlReferencias(inputId, dlId) { const m = ($(inputId) || {}).value || ''; $(dlId).innerHTML = referenciasDe(m).map(r => `<option value="${esc(r)}">`).join(''); }
 async function guardarFormLead(btn) {
@@ -216,7 +222,16 @@ async function guardarFormLead(btn) {
   Object.assign(l, { prospecto: v('lf_prospecto'), telefono: v('lf_tel'), correo: v('lf_correo').toLowerCase(), documento: v('lf_doc'), ciudad: v('lf_ciudad'),
     fechaContacto: v('lf_fcontacto'), origen: v('lf_origen'), marca: v('lf_marca'), referencia: v('lf_ref'), version: v('lf_version'),
     valorEstimado: Number(v('lf_valor')) || 0, formaPago: v('lf_pago'), retoma: v('lf_retoma'), fechaSeguimiento: v('lf_fseg'), horaSeguimiento: v('lf_hseg'), observaciones: v('lf_obs') });
-  if (!previo) l.estado = v('lf_estado') || 'nuevo';
+  if (!previo) {
+    l.estado = v('lf_estado') || 'nuevo';
+    // número del lead tal como viene de la app de origen (KOMMO, campaña, formulario…)
+    const num = v('lf_numero').replace(/\s+/g, '');
+    if (!num) { mostrarToast('Escribe el # del lead (el número que trae de la app de origen)', 'error'); $('lf_numero').focus(); return; }
+    if (!/^[A-Za-z0-9#._-]{1,30}$/.test(num)) { mostrarToast('El # del lead solo admite letras, números y . _ - #', 'error'); return; }
+    const ya = S.leads.find(x => String(x.id).toLowerCase() === num.toLowerCase());
+    if (ya) { mostrarToast(`Ya existe el lead #${ya.id} (${ya.prospecto}, ${nombreUsuario(ya.comercial)})`, 'error'); return; }
+    l.id = num; l.nuevo = true;
+  }
   if ($('lf_comercial')) l.comercial = $('lf_comercial').value; else if (!previo) l.comercial = S.usuario.correo;
   const falta = [['prospecto', 'el nombre del prospecto'], ['telefono', 'el teléfono'], ['fechaContacto', 'la fecha de contacto'], ['marca', 'la marca'], ['referencia', 'la referencia']].find(([k]) => !l[k]);
   if (falta) { mostrarToast(`Falta ${falta[1]}`, 'error'); return; }
@@ -263,7 +278,7 @@ function abrirFicha(id, foco) {
         ${l.estado === 'perdido' ? `<div class="ficha-obs txt-r">✖ Perdido: ${esc(l.motivoPerdida || '')}</div>` : ''}
       </div>
     </div>
-    <div class="stepper">${pasos.map(e => `<button class="paso ${e.i < idxE && l.estado !== 'perdido' ? 'hecho' : ''} ${e.k === l.estado ? 'actual' : ''}" onclick="pedirCambioEstado('${esc(l.id)}','${e.k}')" title="Cambiar a ${esc(e.t)}"><span>${e.i + 1}</span>${esc(e.t)}</button>`).join('')}
+    <div class="stepper">${pasos.map(e => `<button class="paso ${e.i < idxE && l.estado !== 'perdido' ? 'hecho' : ''} ${e.k === l.estado ? 'actual' : ''} ${!puedeRetroceder() && esRetroceso(l.estado, e.k) ? 'bloqueado' : ''}" onclick="pedirCambioEstado('${esc(l.id)}','${e.k}')" title="${!puedeRetroceder() && esRetroceso(l.estado, e.k) ? 'Solo supervisor o gerencia pueden volver a un estado anterior' : 'Cambiar a ' + esc(e.t)}"><span>${e.i + 1}</span>${esc(e.t)}</button>`).join('')}
       <button class="paso paso-perdido ${l.estado === 'perdido' ? 'actual' : ''}" onclick="pedirCambioEstado('${esc(l.id)}','perdido')">✖ Perdido</button></div>
 
     ${act ? `<div class="form-sect" id="sec-gestion">Registrar gestión</div>
@@ -280,7 +295,7 @@ function abrirFicha(id, foco) {
     </div>
     <div class="form-grid" style="margin-top:10px;grid-template-columns:2fr 1fr">
       <div class="form-group"><label>Detalle</label><textarea id="gs_nota" rows="2" placeholder="Qué se habló, objeciones, compromisos…"></textarea></div>
-      <div class="form-group"><label>Avanzar estado a</label><select id="gs_estado"><option value="">Mantener: ${esc(EST[l.estado].t)}</option>${ESTADOS.filter(e => !FINALES.includes(e.k) && !GANADOS.includes(e.k) && e.k !== l.estado).map(e => `<option value="${e.k}">${esc(e.t)}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Avanzar estado a</label><select id="gs_estado"><option value="">Mantener: ${esc(EST[l.estado].t)}</option>${ESTADOS.filter(e => !FINALES.includes(e.k) && !GANADOS.includes(e.k) && e.k !== l.estado && !esRetroceso(l.estado, e.k)).map(e => `<option value="${e.k}">${esc(e.t)}</option>`).join('')}</select></div>
     </div>
     <div class="gest-envio"><button class="btn btn-primary-dark" onclick="guardarGestion('${esc(l.id)}',this)">💾 Guardar gestión y agendar</button>
       ${l.fechaSeguimiento ? `<a class="btn btn-sm btn-outline-dark" href="${urlGoogleCalendar(l)}" target="_blank" rel="noopener" title="Agregar el seguimiento actual a Google Calendar">📅 Google Calendar</a><button class="btn btn-sm btn-outline-dark" onclick="descargarICS('${esc(l.id)}')" title="Para Outlook / iPhone">📅 .ics</button>` : ''}</div>` : ''}

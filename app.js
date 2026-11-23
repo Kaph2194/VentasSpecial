@@ -22,7 +22,7 @@ const GOOGLE_CLIENT_ID = '';
 let EMPRESA = { nombre: 'Special Car', nit: '', direccion: '', ciudad: 'Bogotá D.C.', telefono: '', correo: '', web: '' };
 let VALIDEZ_COTIZACION = 8;
 // Versión de apps-script/Ventas.gs que espera esta página
-const VERSION_BACKEND_ESPERADA = '2026-11-18.6';
+const VERSION_BACKEND_ESPERADA = '2026-11-23.1';
 let _avisoVersion = false;
 
 // ===== CATÁLOGOS =====
@@ -30,7 +30,6 @@ const ESTADOS = [
   { k: 'nuevo', t: 'Nuevo', c: 'st-nuevo' },
   { k: 'contactado', t: 'Contactado', c: 'st-contactado' },
   { k: 'cita', t: 'Cita / visita agendada', c: 'st-cita' },
-  { k: 'prueba', t: 'Prueba de manejo', c: 'st-prueba' },
   { k: 'cotizado', t: 'Cotizado', c: 'st-cotizado' },
   { k: 'negociacion', t: 'Negociación', c: 'st-negociacion' },
   { k: 'credito', t: 'Crédito en estudio', c: 'st-credito' },
@@ -40,14 +39,40 @@ const ESTADOS = [
   { k: 'perdido', t: 'Perdido', c: 'st-perdido' }
 ];
 const EST = {}; ESTADOS.forEach((e, i) => { EST[e.k] = Object.assign({ i }, e); });
+// "Prueba de manejo" ya no es un estado: los leads antiguos en ese estado se muestran como "Cita / visita"
+EST.prueba = Object.assign({}, EST.cita, { k: 'prueba', t: 'Prueba de manejo (anterior)' });
+const normalizarLead = l => { if (l && l.estado === 'prueba') l.estado = 'cita'; return l; };
+// Un asesor solo avanza: volver a un estado anterior (o reabrir un perdido) lo hace supervisor, gerencia o admin, con justificación
+function esRetroceso(de, a) {
+  if (!de || de === a || a === 'perdido') return false;
+  if (de === 'perdido') return true;
+  return (EST[a] || EST.nuevo).i < (EST[de] || EST.nuevo).i;
+}
+const puedeRetroceder = () => rolActual() !== 'comercial';
+// Selector de ciudad: lista de ciudades de Colombia + "Otra…" (el valor queda en el input #id)
+const ALIAS_CIUDAD = { 'bogota': 'Bogotá D.C.', 'bogotá': 'Bogotá D.C.', 'bogota d.c.': 'Bogotá D.C.', 'bogotá dc': 'Bogotá D.C.', 'medellin': 'Medellín', 'cucuta': 'Cúcuta', 'chia': 'Chía', 'ibague': 'Ibagué', 'monteria': 'Montería', 'popayan': 'Popayán', 'quibdo': 'Quibdó', 'itagui': 'Itagüí', 'fusagasuga': 'Fusagasugá', 'facatativa': 'Facatativá', 'cajica': 'Cajicá', 'girardot': 'Girardot', 'tulua': 'Tuluá', 'jamundi': 'Jamundí', 'apartado': 'Apartadó', 'magangue': 'Magangué', 'ocana': 'Ocaña', 'giron': 'Girón', 'san andres': 'San Andrés', 'inirida': 'Inírida', 'mitu': 'Mitú', 'puerto carreno': 'Puerto Carreño', 'san jose del guaviare': 'San José del Guaviare' };
+const normCiudad = c => { c = String(c || '').trim(); return ALIAS_CIUDAD[c.toLowerCase()] || c; };
+function htmlCiudad(id, valor, requerido) {
+  valor = normCiudad(valor); const enLista = !valor || CIUDADES.includes(valor);
+  return `<select id="${id}_sel" class="sel-ciudad" onchange="elegirCiudad('${id}',this)"><option value="">— Selecciona${requerido ? '' : ' (opcional)'} —</option>${CIUDADES.map(c => `<option ${c === valor ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="__otra" ${enLista ? '' : 'selected'}>Otra…</option></select>
+    <input id="${id}" class="inp-otra ${enLista ? 'hidden' : ''}" value="${esc(valor)}" placeholder="Escribe la ciudad"/>`;
+}
+function elegirCiudad(id, sel) { const inp = $(id); if (sel.value === '__otra') { inp.value = ''; inp.classList.remove('hidden'); inp.focus(); } else { inp.value = sel.value; inp.classList.add('hidden'); } }
 const FINALES = ['entregado', 'perdido'];
 const GANADOS = ['facturado', 'entregado'];
 const esActivo = l => !FINALES.includes(l.estado);
-const ORIGENES = ['Vitrina / showroom', 'Llamada entrante', 'WhatsApp', 'Página web', 'Facebook / Instagram', 'TikTok', 'Referido', 'Cliente antiguo', 'Base de datos', 'Feria / evento', 'TuCarro / Marketplace', 'Otro'];
+const ORIGENES = ['Campaña', 'WhatsApp', 'Formulario', 'KOMMO', 'Instagram', 'Facebook', 'TikTok', 'Página web / Google', 'Llamada entrante', 'Vitrina / showroom',
+  'Referido', 'Cliente antiguo', 'Base de datos', 'Feria / evento', 'TuCarro / Marketplace', 'Correo electrónico', 'Otro'];
+// Principales ciudades de Colombia (capitales y municipios grandes); "Otra" permite escribir una distinta
+const CIUDADES = ['Bogotá D.C.', 'Medellín', 'Cali', 'Barranquilla', 'Cartagena', 'Bucaramanga', 'Cúcuta', 'Pereira', 'Santa Marta', 'Ibagué', 'Manizales', 'Villavicencio',
+  'Pasto', 'Neiva', 'Armenia', 'Montería', 'Valledupar', 'Sincelejo', 'Popayán', 'Tunja', 'Riohacha', 'Yopal', 'Florencia', 'Quibdó', 'Arauca', 'Mocoa', 'Leticia',
+  'San Andrés', 'San José del Guaviare', 'Inírida', 'Mitú', 'Puerto Carreño', 'Soacha', 'Chía', 'Zipaquirá', 'Funza', 'Mosquera', 'Madrid', 'Facatativá', 'Cajicá',
+  'Fusagasugá', 'Girardot', 'Bello', 'Itagüí', 'Envigado', 'Sabaneta', 'Rionegro', 'Soledad', 'Malambo', 'Floridablanca', 'Girón', 'Piedecuesta', 'Barrancabermeja',
+  'Dosquebradas', 'Palmira', 'Tuluá', 'Buga', 'Cartago', 'Jamundí', 'Buenaventura', 'Duitama', 'Sogamoso', 'Apartadó', 'Turbo', 'Maicao', 'Magangué', 'Ocaña', 'Pitalito', 'Ipiales', 'Tumaco'];
 const MEDIOS = ['Llamada', 'WhatsApp', 'Correo', 'Visita en vitrina', 'Videollamada', 'Redes sociales', 'Otro'];
 const RESULTADOS = [
   { t: 'No contestó', c: 'res-mal' }, { t: 'Número errado', c: 'res-mal' }, { t: 'Interesado', c: 'res-ok' },
-  { t: 'Solicita cotización', c: 'res-info' }, { t: 'Agenda cita / visita', c: 'res-ok' }, { t: 'Agenda prueba de manejo', c: 'res-ok' },
+  { t: 'Solicita cotización', c: 'res-info' }, { t: 'Agenda cita / visita', c: 'res-ok' },
   { t: 'Lo está pensando', c: 'res-warn' }, { t: 'Pide descuento / mejor precio', c: 'res-warn' }, { t: 'Radicó crédito', c: 'res-info' },
   { t: 'Separó el vehículo', c: 'res-ok' }, { t: 'No interesado', c: 'res-mal' }, { t: 'Compró en otro lado', c: 'res-mal' }, { t: 'Otro', c: 'res-info' }
 ];
@@ -162,7 +187,7 @@ function camposPerfil(px, d) {
       ${f('nombre', 'Nombre y apellido *', d.nombre, 'autocomplete="name" placeholder="Como aparecerá en las cotizaciones"')}
       ${f('telefono', 'Celular *', d.telefono, 'type="tel" autocomplete="tel" placeholder="300 123 4567"')}
       ${f('documento', 'Cédula *', d.documento, 'inputmode="numeric" placeholder="Número de documento"')}
-      ${f('ciudad', 'Ciudad *', d.ciudad, 'autocomplete="address-level2"')}
+      <div class="form-group"><label>Ciudad *</label>${htmlCiudad(px + '_ciudad', d.ciudad, true)}</div>
       <div class="pf-ancho">${f('direccion', 'Dirección', d.direccion, 'autocomplete="street-address"')}</div>
       ${f('contactoEmergencia', 'Contacto de emergencia', d.contactoEmergencia, 'placeholder="Nombre y parentesco"')}
       ${f('telEmergencia', 'Teléfono de emergencia', d.telEmergencia, 'type="tel"')}
@@ -339,7 +364,7 @@ function sincronizar(forzar) {
       S.ultimaSync = new Date();
       if (!r.sinCambios) {
         S.version = r.version; S.usuario = r.usuario || S.usuario; try { localStorage.setItem('vt_usuario', JSON.stringify(S.usuario)); } catch (e) {} if ($('user-chip')) pintarChip(); S.usuarios = r.usuarios || [];
-        S.leads = r.leads || []; S.cotizaciones = r.cotizaciones || [];
+        S.leads = (r.leads || []).map(normalizarLead); S.cotizaciones = r.cotizaciones || [];
         if (r.empresa) EMPRESA = Object.assign({}, EMPRESA, r.empresa);
         if (r.validezCotizacion) VALIDEZ_COTIZACION = r.validezCotizacion;
         S.hoja = r.hoja || ''; S.carpeta = r.carpeta || '';
@@ -367,7 +392,7 @@ function refrescarVista() {
 }
 // Guarda un lead en el backend y actualiza la lista con la respuesta (# lead, comercial, evento)
 async function guardarLeadRemoto(lead) {
-  const r = await api('guardarLead', { lead });
+  const r = await api('guardarLead', { lead }); normalizarLead(r.lead);
   const i = S.leads.findIndex(x => x.id === r.lead.id);
   if (i >= 0) S.leads[i] = r.lead; else S.leads.unshift(r.lead);
   S.version = null;
@@ -375,7 +400,7 @@ async function guardarLeadRemoto(lead) {
   return r.lead;
 }
 function upsertCotizacion(c) { const i = S.cotizaciones.findIndex(x => x.id === c.id); if (i >= 0) S.cotizaciones[i] = c; else S.cotizaciones.unshift(c); }
-function upsertLead(l) { if (!l) return; const i = S.leads.findIndex(x => x.id === l.id); if (i >= 0) S.leads[i] = l; else S.leads.unshift(l); }
+function upsertLead(l) { if (!l) return; normalizarLead(l); const i = S.leads.findIndex(x => x.id === l.id); if (i >= 0) S.leads[i] = l; else S.leads.unshift(l); }
 
 // ===== NAVEGACIÓN =====
 const VISTAS = ['leads', 'agenda', 'cotizaciones', 'reportes', 'usuarios'];
