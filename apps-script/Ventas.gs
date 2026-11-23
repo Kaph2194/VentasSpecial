@@ -26,7 +26,7 @@
  */
 
 // Versión del backend: la app avisa si la página espera una versión distinta
-const VERSION_BACKEND = '2026-11-23.2';
+const VERSION_BACKEND = '2026-11-23.3';
 
 const CONFIG = {
   EMPRESA: {
@@ -49,6 +49,7 @@ const CONFIG = {
   VALIDEZ_COTIZACION_DIAS: 8,
   DURACION_SESION_DIAS: 30,          // días que la app recuerda el ingreso en ese navegador
   ADMINS: [],                        // correos que siempre son administradores (además de la cuenta dueña)
+  GERENCIA: ['ceo@specialcar.com.co', 'gerente@specialcar.com.co'], // correos que siempre tienen perfil Gerencia (se crean solos si faltan)
   PERMITIR_REGISTRO: true,           // comerciales y supervisores se registran solos con su correo; quedan como Comercial
   // "Continuar con Google": ID de cliente OAuth (tipo Aplicación web) creado en console.cloud.google.com.
   // Debe ser el mismo que GOOGLE_CLIENT_ID en app.js. Vacío = solo ingreso con código al correo.
@@ -106,11 +107,13 @@ function doPost(e) {
       case 'verificarCodigo': return json_(verificarCodigo_(p.correo, p.codigo));
       case 'ingresarGoogle':  return json_(ingresarGoogle_(p.credential));
       case 'completarRegistro': return json_(completarRegistro_(p.registroToken, p.datos));
+      case 'ingresarClave':   return json_(ingresarClave_(p.correo, p.clave));
     }
     const u = usuarioDeToken_(p.token);
     if (!u) return json_({ error: 'sesion' });
     switch (p.accion) {
       case 'guardarPerfil':      return json_(guardarPerfil_(u, p.datos));
+      case 'cambiarClave':       return json_(cambiarClave_(u, p.actual, p.nueva));
       case 'cerrarSesion':       PropertiesService.getScriptProperties().deleteProperty('SES_' + p.token); return json_({ ok: true });
       case 'obtenerDatos':       return json_(obtenerDatos_(u, p.version));
       case 'guardarLead':        return json_(guardarLead_(u, p.lead));
@@ -179,13 +182,16 @@ function normCorreo_(c) { return String(c || '').trim().toLowerCase(); }
 function leerUsuarios_() {
   const h = hoja_('Usuarios', ENC_USUARIOS);
   if (h.getLastRow() < 2) asegurarUsuariosIniciales_(h);
+  asegurarFijos_(h);
   const n = h.getLastRow() - 1;
   if (n < 1) return [];
   const admins = CONFIG.ADMINS.map(normCorreo_).concat([normCorreo_(Session.getEffectiveUser().getEmail())]);
+  const gerencia = (CONFIG.GERENCIA || []).map(normCorreo_);
+  const claves = clavesGuardadas_();
   if (h.getLastColumn && h.getLastColumn() < ENC_USUARIOS.length) h.getRange(1, 1, 1, ENC_USUARIOS.length).setValues([ENC_USUARIOS]);
   return h.getRange(2, 1, n, ENC_USUARIOS.length).getValues().filter(f => f[0]).map((f, i) => {
     const correo = normCorreo_(f[0]);
-    return { fila: i + 2, correo: correo, nombre: String(f[1] || correo), rol: admins.indexOf(correo) >= 0 ? 'admin' : rolDe_(f[2]),
+    return { fila: i + 2, correo: correo, nombre: String(f[1] || correo), rol: admins.indexOf(correo) >= 0 ? 'admin' : gerencia.indexOf(correo) >= 0 ? 'gerencia' : rolDe_(f[2]), tieneClave: !!claves[correo],
       activo: !/^(no|false|0|inactivo)$/i.test(String(f[3]).trim()), telefono: String(f[4] || ''), cargo: String(f[5] || ''), supervisor: normCorreo_(f[8]),
       creado: f[6] instanceof Date ? f[6].toISOString() : String(f[6] || ''), documento: String(f[9] || ''), ciudad: String(f[10] || ''), direccion: String(f[11] || ''),
       contactoEmergencia: String(f[12] || ''), telEmergencia: String(f[13] || ''), foto: String(f[14] || ''), origen: String(f[15] || '') };
@@ -196,11 +202,23 @@ function asegurarUsuariosIniciales_(h) {
   const lista = [dueno].concat(CONFIG.ADMINS.map(normCorreo_)).filter((c, i, a) => c && a.indexOf(c) === i);
   lista.forEach(c => h.appendRow([c, c === dueno ? 'Administrador' : c, 'Administrador', 'Sí', '', 'Gerente comercial', new Date(), '']));
 }
+// Crea (una sola vez) las filas de los correos fijos de CONFIG.ADMINS y CONFIG.GERENCIA que aún no estén en la hoja
+function asegurarFijos_(h) {
+  const fijos = CONFIG.ADMINS.map(c => [normCorreo_(c), 'Administrador']).concat((CONFIG.GERENCIA || []).map(c => [normCorreo_(c), 'Gerencia'])).filter(x => correoOk_(x[0]));
+  if (!fijos.length) return;
+  const firma = fijos.map(x => x[0]).join(',');
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('FIJOS_OK') === firma) return;
+  const n = h.getLastRow() - 1;
+  const hay = n > 0 ? h.getRange(2, 1, n, 1).getValues().map(f => normCorreo_(f[0])) : [];
+  fijos.forEach(x => { if (hay.indexOf(x[0]) < 0) h.appendRow([x[0], x[0].split('@')[0].replace(/^./, m => m.toUpperCase()), x[1], 'Sí', '', x[1] === 'Gerencia' ? 'Gerencia' : 'Administrador', new Date(), '', '', '', '', '', '', '', '', 'Configuración']); });
+  props.setProperty('FIJOS_OK', firma);
+}
 function usuarioPorCorreo_(correo) { correo = normCorreo_(correo); return leerUsuarios_().filter(u => u.correo === correo)[0] || null; }
 // Datos de un usuario para la app. Los datos personales (documento, dirección, emergencia) solo los ven
 // gerencia/administradores y la propia persona; los demás ven nombre, contacto y foto.
 function publico_(x, viewer) {
-  const b = { correo: x.correo, nombre: x.nombre, rol: x.rol, activo: x.activo, telefono: x.telefono, cargo: x.cargo, supervisor: x.supervisor || '', creado: x.creado || '', foto: x.foto || '', ciudad: x.ciudad || '' };
+  const b = { correo: x.correo, nombre: x.nombre, rol: x.rol, activo: x.activo, tieneClave: (!viewer || viewer.correo === x.correo || verTodo_(viewer)) ? !!x.tieneClave : undefined, telefono: x.telefono, cargo: x.cargo, supervisor: x.supervisor || '', creado: x.creado || '', foto: x.foto || '', ciudad: x.ciudad || '' };
   if (!viewer || viewer.correo === x.correo || verTodo_(viewer)) Object.assign(b, { documento: x.documento || '', direccion: x.direccion || '', contactoEmergencia: x.contactoEmergencia || '', telEmergencia: x.telEmergencia || '', origen: x.origen || '' });
   return b;
 }
@@ -366,6 +384,50 @@ function guardarPerfil_(u, datos) {
   } finally { lock.releaseLock(); }
   return { ok: true, usuario: publico_(usuarioPorCorreo_(u.correo), u) };
 }
+// ---------- Contraseña (opcional, la asigna gerencia/admin; se guarda cifrada en las propiedades del script, nunca en la hoja) ----------
+function clavesGuardadas_() {
+  const todo = PropertiesService.getScriptProperties().getProperties(), r = {};
+  Object.keys(todo).forEach(k => { if (k.indexOf('PWD_') === 0) r[k.slice(4)] = true; });
+  return r;
+}
+function hashClave_(clave, sal, n) {
+  let h = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sal + '|' + clave, Utilities.Charset.UTF_8);
+  for (let i = 1; i < n; i++) h = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, h.concat(Utilities.newBlob(sal).getBytes()));
+  return Utilities.base64Encode(h);
+}
+function validarClaveNueva_(c) {
+  c = String(c || '');
+  if (c.length < 8 || !/[A-Za-z]/.test(c) || !/\d/.test(c)) throw new Error('La contraseña debe tener mínimo 8 caracteres, con letras y números');
+  return c;
+}
+function fijarClave_(correo, clave) {
+  const sal = Utilities.getUuid().replace(/-/g, ''), n = 400;
+  PropertiesService.getScriptProperties().setProperty('PWD_' + normCorreo_(correo), JSON.stringify({ s: sal, n: n, h: hashClave_(clave, sal, n) }));
+}
+function claveCorrecta_(correo, clave) {
+  const raw = PropertiesService.getScriptProperties().getProperty('PWD_' + normCorreo_(correo));
+  if (!raw || !clave) return false;
+  const o = JSON.parse(raw);
+  return hashClave_(String(clave), o.s, o.n) === o.h;
+}
+/** Ingreso con correo + contraseña (máx. 5 intentos fallidos cada 15 minutos por correo). */
+function ingresarClave_(correo, clave) {
+  correo = normCorreo_(correo);
+  if (!correoOk_(correo) || !clave) throw new Error('Escribe tu correo y tu contraseña');
+  const cache = CacheService.getScriptCache(), k = 'PWDF_' + correo, fallos = Number(cache.get(k)) || 0;
+  if (fallos >= 5) throw new Error('Demasiados intentos. Espera 15 minutos o entra con Google o con un código al correo.');
+  const u = usuarioPorCorreo_(correo);
+  if (!u || !claveCorrecta_(correo, clave)) { cache.put(k, String(fallos + 1), 900); Utilities.sleep(400); throw new Error('Correo o contraseña incorrectos'); }
+  if (!u.activo) throw new Error('Tu usuario está inactivo. Comunícate con gerencia o el administrador.');
+  cache.remove(k);
+  return abrirSesion_(u);
+}
+/** Cada usuario cambia su propia contraseña (si ya tiene, debe escribir la actual). */
+function cambiarClave_(u, actual, nueva) {
+  if (u.tieneClave && !claveCorrecta_(u.correo, actual)) throw new Error('La contraseña actual no es correcta');
+  fijarClave_(u.correo, validarClaveNueva_(nueva));
+  return { ok: true, usuario: publico_(usuarioPorCorreo_(u.correo), u) };
+}
 function limpiarSesiones_(props) {
   const ahora = Date.now(), todo = props.getProperties();
   Object.keys(todo).forEach(k => { if (k.indexOf('SES_') === 0) { try { if (JSON.parse(todo[k]).e < ahora) props.deleteProperty(k); } catch (e) { props.deleteProperty(k); } } });
@@ -399,6 +461,8 @@ function guardarUsuario_(u, nuevo) {
     else h.appendRow(fila.concat([new Date(), '', sup]));
     // si deja de ser supervisor, su equipo queda sin supervisor
     if (ex && ex.rol === 'supervisor' && rol !== 'supervisor') todos.filter(x => x.supervisor === correo).forEach(x => h.getRange(x.fila, 9).setValue(''));
+    if (nuevo.clave) fijarClave_(correo, validarClaveNueva_(nuevo.clave));
+    else if (nuevo.quitarClave) PropertiesService.getScriptProperties().deleteProperty('PWD_' + correo);
     tocarVersion_();
   } finally { lock.releaseLock(); }
   return { ok: true, usuarios: leerUsuarios_().map(x => publico_(x, u)) };

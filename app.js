@@ -220,7 +220,16 @@ async function elegirFoto(px, input) {
 function quitarFoto(px) { _fotos[px] = ''; $(px + '_avatar').innerHTML = avatarHTML({ nombre: ($(px + '_nombre') || {}).value }, 64); $(px + '_quitar').classList.add('hidden'); }
 
 // ===== INGRESO: con Google o con código de 6 dígitos al correo =====
-let _registro = false, _gRegistro = null;
+let _registro = false, _gRegistro = null, _conClave = false;
+// Ingreso con contraseña (la asigna gerencia o el administrador en 👥 Usuarios)
+function modoClave(on) {
+  _conClave = on === undefined ? !_conClave : !!on;
+  $('lg-clave-box').classList.toggle('hidden', !_conClave);
+  $('lg-btn1').textContent = _conClave ? 'Entrar' : 'Enviarme un código de acceso';
+  $('lg-modo-clave').textContent = _conClave ? '✉️ Prefiero recibir un código al correo' : '🔑 Ingresar con contraseña';
+  $('lg-ayuda1').classList.toggle('hidden', _conClave);
+  if (_conClave) setTimeout(() => ($('lg-correo').value ? $('lg-clave') : $('lg-correo')).focus(), 30);
+}
 function modoRegistro(on) {
   _registro = !!on;
   // Crear cuenta: SOLO con la cuenta de Google (los datos de contacto se piden después, en el paso 3)
@@ -235,6 +244,7 @@ function mostrarLogin() {
   ['lg-paso2', 'lg-paso3'].forEach(id => $(id).classList.add('hidden')); $('lg-paso1').classList.remove('hidden');
   $('lg-demo').classList.toggle('hidden', !MODO_DEMO);
   try { $('lg-correo').value = localStorage.getItem('vt_ultimo_correo') || ''; } catch (e) {}
+  modoClave(false); if ($('lg-clave')) $('lg-clave').value = '';
   if (/[?&]registro\b/.test(location.search)) modoRegistro(true); else iniciarGoogle();
 }
 // Botón "Continuar con Google" (Google Identity Services). En el demo se simula.
@@ -290,6 +300,14 @@ async function pedirCodigo(ev) {
   const correo = $('lg-correo').value.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) { mostrarToast('Escribe tu correo electrónico', 'error'); return; }
   if (_registro) { mostrarToast('Para crear tu cuenta usa el botón de Google', 'info'); return; }
+  if (_conClave) {
+    const clave = $('lg-clave').value; if (!clave) { mostrarToast('Escribe tu contraseña', 'error'); return; }
+    await conEspera($('lg-btn1'), async () => {
+      try { const r = await api('ingresarClave', { correo, clave }); $('lg-clave').value = ''; iniciarSesion(r); }
+      catch (e) { mostrarToast(e.message, 'error'); }
+    });
+    return;
+  }
   const registro = null;
   await conEspera($('lg-btn1'), async () => {
     try {
@@ -339,8 +357,25 @@ function abrirMiPerfil(obligatorio) {
     ${obligatorio ? '<div class="aviso-nuevos" style="margin:0 0 14px">Para continuar completa tus datos de contacto. La foto es opcional.</div>' : ''}
     <div class="form-group" style="margin-bottom:12px"><label>Correo</label><input value="${esc(u.correo)}" disabled/></div>
     ${camposPerfil('pf', u)}
-    <p class="nota-cal">Perfil: <b>${ROLES[rolActual()]}</b>${u.supervisor ? ' · Supervisor: ' + esc(nombreUsuario(u.supervisor)) : ''}. El perfil y el equipo los asigna gerencia o el administrador.</p>`,
+    <p class="nota-cal">Perfil: <b>${ROLES[rolActual()]}</b>${u.supervisor ? ' · Supervisor: ' + esc(nombreUsuario(u.supervisor)) : ''}. El perfil y el equipo los asigna gerencia o el administrador.</p>
+    ${obligatorio ? '' : `<details class="pf-clave"><summary>🔑 ${u.tieneClave ? 'Cambiar mi contraseña' : 'Crear una contraseña (opcional)'}</summary>
+      <div class="form-grid" style="margin-top:10px">
+        ${u.tieneClave ? '<div class="form-group"><label>Contraseña actual</label><input type="password" id="pf_clave_act" autocomplete="current-password"/></div>' : ''}
+        <div class="form-group"><label>Nueva contraseña</label><input type="password" id="pf_clave_new" autocomplete="new-password" placeholder="Mín. 8, con letras y números"/></div>
+        <div class="form-group"><label>Repetir nueva</label><input type="password" id="pf_clave_rep" autocomplete="new-password"/></div>
+      </div><button class="btn btn-outline-dark btn-sm" onclick="cambiarMiClave(this)">Guardar contraseña</button>
+      <p class="td-sub">Con contraseña entras escribiendo tu correo y tu contraseña, sin esperar el código. Google y el código siguen funcionando.</p></details>`}`,
     `<button class="btn btn-primary-dark" onclick="guardarMiPerfil(this)">💾 Guardar</button>`, 'modal-md');
+}
+const claveValida = c => c.length >= 8 && /[A-Za-z]/.test(c) && /\d/.test(c);
+async function cambiarMiClave(btn) {
+  const nueva = $('pf_clave_new').value, rep = $('pf_clave_rep').value, actual = $('pf_clave_act') ? $('pf_clave_act').value : '';
+  if (!claveValida(nueva)) { mostrarToast('La contraseña debe tener mínimo 8 caracteres, con letras y números', 'error'); return; }
+  if (nueva !== rep) { mostrarToast('Las contraseñas no coinciden', 'error'); return; }
+  await conEspera(btn, async () => {
+    try { const r = await api('cambiarClave', { actual, nueva }); S.usuario = Object.assign({}, S.usuario, r.usuario); ['pf_clave_act', 'pf_clave_new', 'pf_clave_rep'].forEach(id => $(id) && ($(id).value = '')); mostrarToast('Contraseña guardada', 'success'); }
+    catch (e) { mostrarToast(e.message, 'error'); }
+  });
 }
 async function guardarMiPerfil(btn) {
   const datos = leerPerfil('pf'), err = validarPerfil(datos); if (err) { mostrarToast(err, 'error'); return; }
@@ -457,7 +492,7 @@ function renderUsuarios() {
   $('us-nuevos').classList.toggle('hidden', !nuevos.length);
   $('tbodyUsuarios').innerHTML = S.usuarios.slice().sort((a, b) => (b.activo - a.activo) || (orden[a.rol] - orden[b.rol]) || a.nombre.localeCompare(b.nombre)).map(u => {
     const mios = S.leads.filter(l => l.comercial === u.correo), equipo = S.usuarios.filter(x => x.supervisor === u.correo);
-    return `<tr class="${u.activo ? '' : 'fila-inactiva'} ${esRegistroNuevo(u) ? 'fila-nuevo' : ''}"><td><div class="us-nombre">${avatarHTML(u, 34)}<div><b>${esc(u.nombre)}</b>${esRegistroNuevo(u) ? ' <span class="st st-cotizado">Nuevo</span>' : ''}<div class="td-sub">${[u.ciudad, u.documento ? 'CC ' + u.documento : '', u.creado ? 'desde ' + fmtD(String(u.creado).slice(0, 10)) : '', u.origen === 'Google' ? 'con Google' : ''].filter(Boolean).map(esc).join(' · ')}${perfilIncompleto(u) ? ' · <span class="txt-r">perfil incompleto</span>' : ''}</div></div></div></td><td>${esc(u.correo)}</td><td><span class="st ${ROL_CLS[u.rol]}">${ROLES[u.rol]}</span></td>
+    return `<tr class="${u.activo ? '' : 'fila-inactiva'} ${esRegistroNuevo(u) ? 'fila-nuevo' : ''}"><td><div class="us-nombre">${avatarHTML(u, 34)}<div><b>${esc(u.nombre)}</b>${esRegistroNuevo(u) ? ' <span class="st st-cotizado">Nuevo</span>' : ''}<div class="td-sub">${[u.ciudad, u.documento ? 'CC ' + u.documento : '', u.creado ? 'desde ' + fmtD(String(u.creado).slice(0, 10)) : '', u.origen === 'Google' ? 'con Google' : '', u.tieneClave ? '🔑 con contraseña' : ''].filter(Boolean).map(esc).join(' · ')}${perfilIncompleto(u) ? ' · <span class="txt-r">perfil incompleto</span>' : ''}</div></div></div></td><td>${esc(u.correo)}</td><td><span class="st ${ROL_CLS[u.rol]}">${ROLES[u.rol]}</span></td>
       <td>${u.rol === 'supervisor' ? `<span class="td-sub2">Equipo: ${equipo.length ? equipo.map(x => esc(x.nombre)).join(', ') : '<i>sin asignar</i>'}</span>` : u.rol === 'comercial' ? (u.supervisor ? esc(nombreUsuario(u.supervisor)) : '<span class="cell-n">Sin supervisor</span>') : '<span class="cell-n">Ve todo</span>'}</td>
       <td>${esc(u.telefono || '—')}</td><td>${esc(u.cargo || '—')}</td><td>${u.activo ? '<span class="txt-g">Activo</span>' : '<span class="txt-r">Inactivo</span>'}</td>
       <td style="text-align:center">${mios.filter(esActivo).length}</td><td class="td-acc">${u.rol === 'admin' && rolActual() !== 'admin' ? '' : `<button class="btn-notif" onclick="abrirUsuario('${esc(u.correo)}')">✏️ Editar</button>`}</td></tr>`;
@@ -476,18 +511,21 @@ function abrirUsuario(correo) {
       <div class="form-group ${u.rol === 'comercial' ? '' : 'hidden'}" id="us_sup_box"><label>Supervisor a cargo</label><select id="us_sup"><option value="">— Sin supervisor —</option>${sups.map(x => `<option value="${esc(x.correo)}" ${u.supervisor === x.correo ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select></div>
       <div class="form-group"><label>Teléfono (sale en las cotizaciones)</label><input id="us_tel" value="${esc(u.telefono)}"/></div>
       <div class="form-group"><label>Cargo</label><input id="us_cargo" value="${esc(u.cargo)}"/></div>
+      <div class="form-group"><label>${u.tieneClave ? 'Nueva contraseña' : 'Contraseña (opcional)'}</label><input type="password" id="us_clave" autocomplete="new-password" placeholder="${u.tieneClave ? 'Vacía = no cambiarla' : 'Mín. 8, con letras y números'}"/>${u.tieneClave ? '<label class="chk-inline"><input type="checkbox" id="us_quitar"/> Quitar la contraseña</label>' : ''}</div>
       <div class="form-group"><label>Estado</label><select id="us_activo"><option value="1">Activo</option><option value="0" ${u.activo ? '' : 'selected'}>Inactivo (no puede ingresar)</option></select></div>
     </div>
     ${correo ? `<div class="us-datos">${avatarHTML(u, 48)}<div><b>Datos de contacto</b><div>${[u.ciudad, u.direccion].filter(Boolean).map(esc).join(' · ') || '<span class="cell-n">Sin ciudad / dirección</span>'}</div>
       <div>${u.documento ? 'Cédula ' + esc(u.documento) : '<span class="txt-r">Sin cédula</span>'}${u.contactoEmergencia || u.telEmergencia ? ' · Emergencia: ' + esc([u.contactoEmergencia, u.telEmergencia].filter(Boolean).join(' ')) : ''}</div>
       <div class="td-sub">Registro: ${esc(u.origen || 'manual')}${u.creado ? ' · ' + fmtD(String(u.creado).slice(0, 10)) : ''}. Cada persona actualiza estos datos en "Mi perfil".</div></div></div>` : ''}
-    <p class="nota-cal">Cada persona entra con este correo (con su cuenta de Google o con un código de 6 dígitos que le llega a ese buzón). Los comerciales se asignan a un <b>supervisor</b>, que verá los leads, la agenda y las estadísticas de su equipo.${sups.length ? '' : ' Aún no hay usuarios con perfil Supervisor: créalos primero para poder asignarles comerciales.'}</p>`,
+    <p class="nota-cal">Cada persona entra con este correo: con su cuenta de Google, con un código de 6 dígitos que le llega a ese buzón o, si le asignas una, con <b>contraseña</b> (se guarda cifrada; cada uno puede cambiarla en Mi perfil). Los comerciales se asignan a un <b>supervisor</b>, que verá los leads, la agenda y las estadísticas de su equipo.${sups.length ? '' : ' Aún no hay usuarios con perfil Supervisor: créalos primero para poder asignarles comerciales.'}</p>`,
     `<button class="btn btn-primary-dark" onclick="guardarUsuario(this)">💾 Guardar</button>`, 'modal-md');
 }
 async function guardarUsuario(btn) {
   const usuario = { correo: $('us_correo').value.trim().toLowerCase(), nombre: $('us_nombre').value.trim(), telefono: $('us_tel').value.trim(), cargo: $('us_cargo').value.trim(),
     rol: $('us_rol').value, supervisor: $('us_rol').value === 'comercial' ? $('us_sup').value : '', activo: $('us_activo').value === '1' };
   if (!usuario.correo || !usuario.nombre) { mostrarToast('Correo y nombre son obligatorios', 'error'); return; }
+  const clave = $('us_clave').value; if (clave) { if (!claveValida(clave)) { mostrarToast('La contraseña debe tener mínimo 8 caracteres, con letras y números', 'error'); return; } usuario.clave = clave; }
+  else if ($('us_quitar') && $('us_quitar').checked) usuario.quitarClave = true;
   await conEspera(btn, async () => {
     try { const r = await api('guardarUsuario', { usuario }); S.usuarios = r.usuarios; S.version = null; cerrarModal(); cargarFiltrosDinamicos(); mostrarToast('Usuario guardado', 'success'); sincronizar(true); }
     catch (e) { mostrarToast(e.message, 'error'); }

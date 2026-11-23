@@ -84,6 +84,7 @@ const DemoBackend = (() => {
     if (db) return db;
     try { db = JSON.parse(localStorage.getItem(CLAVE) || 'null'); } catch (e) { db = null; }
     if (!db) { db = semilla(); guardar(); }
+    if (!db.claves) { db.claves = { 'gerente@demo.com': 'Demo2026*' }; guardar(); }
     db.leads.forEach(l => { if (l.estado === 'prueba') l.estado = 'cita'; });
     return db;
   }
@@ -93,6 +94,8 @@ const DemoBackend = (() => {
   const puedeVer = (u, l) => { const a = alcance(u); return !a || a.has(l.comercial); };
   const unir = (a, b) => { const m = new Map(); (a || []).concat(b || []).forEach(x => x && x.id && m.set(x.id, Object.assign({}, m.get(x.id) || {}, x))); return [...m.values()].sort((x, y) => String(x.fecha).localeCompare(String(y.fecha))); };
   const copia = o => JSON.parse(JSON.stringify(o));
+  const claveOk = c => String(c || '').length >= 8 && /[A-Za-z]/.test(c) && /\d/.test(c);
+  const conClave = u => Object.assign(copia(u), { tieneClave: !!(db.claves || {})[u.correo] });
 
   const acciones = {
     solicitarCodigo(p) {
@@ -115,6 +118,18 @@ const DemoBackend = (() => {
       const u = db.usuarios.find(x => x.correo === c); return { ok: true, token: 'demo:' + u.correo, usuario: copia(u) };
     },
     cerrarSesion() { return { ok: true }; },
+    ingresarClave(p) {
+      const c = String(p.correo || '').trim().toLowerCase(), u = db.usuarios.find(x => x.correo === c);
+      if (!u || !(db.claves || {})[c] || db.claves[c] !== p.clave) throw new Error('Correo o contraseña incorrectos (en el demo: gerente@demo.com / Demo2026*)');
+      if (!u.activo) throw new Error('Tu usuario está inactivo. Comunícate con gerencia o el administrador.');
+      return { ok: true, token: 'demo:' + u.correo, usuario: conClave(u) };
+    },
+    cambiarClave(p, u) {
+      db.claves = db.claves || {};
+      if (db.claves[u.correo] && db.claves[u.correo] !== p.actual) throw new Error('La contraseña actual no es correcta');
+      if (!claveOk(p.nueva)) throw new Error('La contraseña debe tener mínimo 8 caracteres, con letras y números');
+      db.claves[u.correo] = p.nueva; tocar(); return { ok: true, usuario: conClave(u) };
+    },
     // "Continuar con Google" simulado: el token del demo trae el perfil en base64 (el real lo valida Google en el backend)
     ingresarGoogle(p) {
       let g; try { g = JSON.parse(decodeURIComponent(escape(atob(String(p.credential).split('.')[1])))); } catch (e) { throw new Error('Respuesta de Google inválida'); }
@@ -138,7 +153,7 @@ const DemoBackend = (() => {
     obtenerDatos(p, u) {
       if (p.version && p.version === db.version) return { sinCambios: true, version: db.version };
       const leads = db.leads.filter(l => puedeVer(u, l)); const ids = new Set(leads.map(l => l.id));
-      return { version: db.version, usuario: copia(u), usuarios: copia(db.usuarios), leads: copia(leads), cotizaciones: copia(db.cotizaciones.filter(c => ids.has(c.leadId))), empresa: EMPRESA, validezCotizacion: 8 };
+      return { version: db.version, usuario: conClave(u), usuarios: db.usuarios.map(conClave), leads: copia(leads), cotizaciones: copia(db.cotizaciones.filter(c => ids.has(c.leadId))), empresa: EMPRESA, validezCotizacion: 8 };
     },
     guardarLead(p, u) {
       const lead = copia(p.lead);
@@ -234,8 +249,11 @@ const DemoBackend = (() => {
       if (u.rol !== 'admin' && (n.rol === 'admin' || (ex && ex.rol === 'admin'))) throw new Error('Solo un administrador puede crear o modificar administradores');
       if (n.rol !== 'comercial') n.supervisor = '';
       if (ex && ex.rol === 'supervisor' && n.rol !== 'supervisor') db.usuarios.forEach(x => { if (x.supervisor === ex.correo) x.supervisor = ''; });
+      const clave = n.clave, quitar = n.quitarClave; delete n.clave; delete n.quitarClave;
+      if (clave && !claveOk(clave)) throw new Error('La contraseña debe tener mínimo 8 caracteres, con letras y números');
       if (ex) Object.assign(ex, n); else db.usuarios.push(n);
-      tocar(); return { ok: true, usuarios: copia(db.usuarios) };
+      db.claves = db.claves || {}; if (clave) db.claves[n.correo] = clave; else if (quitar) delete db.claves[n.correo];
+      tocar(); return { ok: true, usuarios: db.usuarios.map(conClave) };
     },
     enviarInforme(p, u) {
       const pend = db.leads.filter(l => l.comercial === u.correo && esActivo(l) && l.fechaSeguimiento && l.fechaSeguimiento <= hoyISO()).length;
@@ -248,7 +266,7 @@ const DemoBackend = (() => {
     async llamar(p) {
       cargar(); await new Promise(r => setTimeout(r, 120));
       try {
-        const publica = ['solicitarCodigo', 'verificarCodigo', 'ingresarGoogle', 'completarRegistro', 'ping'].includes(p.accion);
+        const publica = ['solicitarCodigo', 'verificarCodigo', 'ingresarGoogle', 'completarRegistro', 'ingresarClave', 'ping'].includes(p.accion);
         const u = publica ? null : usuarioDe(p.token);
         if (!publica && !u) return { error: 'sesion' };
         if (!acciones[p.accion]) return { error: 'accion desconocida: ' + p.accion };

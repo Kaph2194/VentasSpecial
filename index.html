@@ -22,8 +22,10 @@
       <div id="lg-google-box" class="lg-google-box hidden"><div id="lg-google"></div><div class="lg-sep lg-entrar"><span>o con tu correo</span></div></div>
       <p id="lg-sin-google" class="lg-aviso lg-reg hidden">El registro con Google se está activando. Vuelve a intentarlo en unos minutos o pide a gerencia que te agregue.</p>
       <div class="lg-entrar">
-        <div class="form-group"><label>Correo electrónico *</label><input type="email" id="lg-correo" autocomplete="email" placeholder="tucorreo@gmail.com" /></div>
+        <div class="form-group"><label>Correo electrónico *</label><input type="email" id="lg-correo" autocomplete="username" placeholder="tucorreo@gmail.com" /></div>
+        <div class="form-group hidden" id="lg-clave-box"><label>Contraseña</label><input type="password" id="lg-clave" autocomplete="current-password" placeholder="Tu contraseña" /></div>
         <button id="lg-btn1" class="btn btn-primary-dark btn-block" type="submit">Enviarme un código de acceso</button>
+        <p class="td-sub lg-ayuda"><button type="button" class="link-btn" id="lg-modo-clave" onclick="modoClave()">🔑 Ingresar con contraseña</button></p>
         <p class="td-sub lg-ayuda" id="lg-ayuda1">Te llegará un código de 6 dígitos a ese correo. ¿Primera vez? Usa <button type="button" class="link-btn" onclick="modoRegistro(true)">Crear cuenta</button>.</p>
       </div>
       <p class="td-sub lg-ayuda lg-reg hidden">Quedarás registrado como <b>Comercial</b>. Gerencia te asignará tu supervisor o cambiará tu perfil si eres supervisor.</p>
@@ -41,7 +43,7 @@
       <button id="lg-btn3" class="btn btn-primary-dark btn-block" type="submit">Terminar registro</button>
       <p class="td-sub lg-ayuda"><button type="button" class="link-btn" onclick="mostrarLogin()">← Cancelar</button></p>
     </form>
-    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code>. Para <b>Crear cuenta</b>, el botón de Google del demo simula una cuenta nueva.</div>
+    <div id="lg-demo" class="lg-demo hidden"><b>Modo demo</b>: entra con <code>gerente@demo.com</code> (gerencia), <code>supervisor@demo.com</code> (supervisor de Carlos), <code>carlos.ruiz@gmail.com</code> o <code>andrea.mejia@gmail.com</code> (comerciales) o <code>admin@demo.com</code>. El código es <code>123456</code> (gerente@demo.com también entra con la contraseña <code>Demo2026*</code>). Para <b>Crear cuenta</b>, el botón de Google del demo simula una cuenta nueva.</div>
   </div>
 </div>
 
