@@ -52,7 +52,7 @@ const CONFIG = {
   PERMITIR_REGISTRO: true,           // comerciales y supervisores se registran solos con su correo; quedan como Comercial
   // "Continuar con Google": ID de cliente OAuth (tipo Aplicación web) creado en console.cloud.google.com.
   // Debe ser el mismo que GOOGLE_CLIENT_ID en app.js. Vacío = solo ingreso con código al correo.
-  GOOGLE_CLIENT_ID: '',
+  GOOGLE_CLIENT_ID: '820863349253-ih6mgrjnksm2rjlrg08597bk8c1umcmn.apps.googleusercontent.com',
   REGISTRO_SOLO_GOOGLE: true,       // con GOOGLE_CLIENT_ID configurado, las cuentas nuevas solo se crean con "Continuar con Google"
   DOMINIOS_REGISTRO: [],             // vacío = cualquier correo; p.ej. ['specialcar.com.co','gmail.com'] para restringir
   AVISAR_REGISTROS: true,            // gerencia y administradores reciben un correo con cada registro nuevo

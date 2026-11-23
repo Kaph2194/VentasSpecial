@@ -17,7 +17,7 @@ const MODO_DEMO = !/^https:\/\/script\.google(usercontent)?\.com\//.test(VENTAS_
 // Datos de la empresa para el encabezado de las cotizaciones (el backend los reemplaza con su CONFIG.EMPRESA)
 // ID de cliente OAuth de Google para "Continuar con Google" (el mismo de CONFIG.GOOGLE_CLIENT_ID en Ventas.gs).
 // Vacío = solo ingreso con código al correo. Ver VENTAS_SETUP.md, sección "Ingreso con Google".
-const GOOGLE_CLIENT_ID = '';
+const GOOGLE_CLIENT_ID = '820863349253-ih6mgrjnksm2rjlrg08597bk8c1umcmn.apps.googleusercontent.com';
 
 let EMPRESA = { nombre: 'Special Car', nit: '', direccion: '', ciudad: 'Bogotá D.C.', telefono: '', correo: '', web: '' };
 let VALIDEZ_COTIZACION = 8;
